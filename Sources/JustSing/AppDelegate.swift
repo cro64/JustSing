@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var deviceMonitor: DeviceMonitor?
     private var hotKeyController: HotKeyController?
     private var restartAfterWake = false
+    private var wasReductionEnabledBeforeSleep = false
     private var deviceRebuildWorkItem: DispatchWorkItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -29,7 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 deviceRebuildWorkItem?.cancel()
                 let item = DispatchWorkItem { [weak self] in
                     guard let self, audioEngine.isRunning else { return }
-                    audioEngine.rebuildForDeviceChange()
+                    audioEngine.scheduleRebuildForDeviceChange()
                 }
                 deviceRebuildWorkItem = item
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.75, execute: item)
@@ -37,24 +38,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onWillSleep: { [weak self] in
                 guard let self else { return }
                 restartAfterWake = audioEngine.isRunning
+                wasReductionEnabledBeforeSleep = audioEngine.isReductionEnabled
                 audioEngine.stop(restoreOutput: true)
             },
             onDidWake: { [weak self] in
                 guard let self, restartAfterWake else { return }
                 restartAfterWake = false
-                audioEngine.start()
+                let shouldRestoreReduction = wasReductionEnabledBeforeSleep
+                wasReductionEnabledBeforeSleep = false
+                audioEngine.start { [weak self] success in
+                    guard let self, success, shouldRestoreReduction else { return }
+                    self.audioEngine.enableReduction()
+                }
             }
         )
         deviceMonitor?.start()
 
         hotKeyController = HotKeyController { [weak self] in
-            self?.audioEngine.toggleReduction()
-            self?.menuBarController?.updateStatus(self?.audioEngine.status ?? .idle)
+            guard let self else { return }
+            menuBarController?.performToggleWithOnboarding()
         }
         hotKeyController?.registerDefaultHotKey()
 
         menuBarController?.updateStatus(.idle)
         AppLogger.shared.info("JustSing launched")
+
+        restoreSessionIfNeeded()
+    }
+
+    private func restoreSessionIfNeeded() {
+        guard preferences.lastReductionEnabled else { return }
+
+        audioEngine.start { [weak self] success in
+            guard let self, success else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                self?.audioEngine.enableReduction()
+            }
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {

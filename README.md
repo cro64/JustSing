@@ -4,15 +4,15 @@ JustSing is a macOS menu bar app that reduces center-panned vocals in live syste
 
 ## How It Works
 
-JustSing captures system audio, applies stereo center-channel cancellation (`L - R`), and plays the result to your speakers or headphones. Intensity and makeup gain are smoothed with a short ramp to avoid clicks when toggling.
+JustSing captures system audio, applies stereo center-channel cancellation (`L - R`), and plays the result to your speakers or headphones. Toggling ramps intensity smoothly over ~50 ms to avoid clicks — the audio pipeline stays running in passthrough when reduction is off, so re-enabling is instant.
 
-On macOS 14.2 and newer, JustSing uses Apple's **Process Tap** API to capture system audio directly. On older macOS versions, it falls back to routing audio through **BlackHole**.
+On macOS 14.2 and newer, JustSing uses Apple's **Process Tap** API to capture system audio directly, with automatic **BlackHole** fallback if Process Tap is unavailable. On macOS 14.0–14.1, BlackHole is used directly.
 
 ## Requirements
 
 - macOS 14 or newer
 - macOS 14.2+ recommended (Process Tap — no extra software required)
-- [BlackHole 2ch](https://existential.audio/blackhole/) only if you are on macOS 14.0–14.1
+- [BlackHole 2ch](https://existential.audio/blackhole/) as fallback if Process Tap fails, or on macOS 14.0–14.1
 
 ## Permissions
 
@@ -21,7 +21,7 @@ On macOS 14.2 and newer, JustSing uses Apple's **Process Tap** API to capture sy
 | Process Tap (macOS 14.2+) | **System Audio Recording** — prompted on first use |
 | BlackHole fallback | **Microphone** — required because BlackHole appears as an input device |
 
-If permission is denied, open the settings popover (right-click the menu bar icon) and use **Open Microphone Settings**, or grant access in **System Settings → Privacy & Security**.
+If permission is denied, open the settings popover (right-click the menu bar icon) and use the permission button, or grant access in **System Settings → Privacy & Security**.
 
 ## Build
 
@@ -49,23 +49,23 @@ Open `build/JustSing.app`. JustSing lives in the menu bar as a headphones icon.
 
 | Action | Result |
 |---|---|
-| **Left-click** icon | Toggle vocal reduction on/off |
+| **Left-click** icon | Toggle vocal reduction on/off (smooth ramp, pipeline stays active) |
 | **Right-click** icon | Open settings |
 | **⌘⌥M** | Toggle vocal reduction (global hotkey) |
 
 ### Settings
 
-- **Intensity** — how much center content to remove (0–100%)
-- **Makeup Gain** — loudness compensation after reduction (0–12 dB)
+- **Intensity** — how much center content to remove when toggled on (0–100%)
+- **Makeup Gain** — loudness compensation after reduction (0–12 dB, default 4.5 dB)
 
 ### Icon Colors
 
 | Color | Meaning |
 |---|---|
-| White | Idle |
+| White | Idle or passthrough (reduction off) |
 | Accent | Vocal reduction active |
 | Yellow | Mono input — reduction unavailable |
-| Orange | Microphone permission required (BlackHole path) |
+| Orange | Permission required |
 | Red | Error |
 
 ## Audio Routing
@@ -78,6 +78,8 @@ Open `build/JustSing.app`. JustSing lives in the menu bar as a headphones icon.
 4. Processes tapped audio and plays it through your speakers.
 5. Tears down the tap and aggregate device on quit, restoring the previous output.
 
+If Process Tap fails, JustSing automatically falls back to the BlackHole path.
+
 ### BlackHole (fallback)
 
 1. Finds BlackHole as the capture device.
@@ -86,7 +88,18 @@ Open `build/JustSing.app`. JustSing lives in the menu bar as a headphones icon.
 4. Captures from BlackHole, processes audio, and plays the result to the physical output.
 5. Restores the previous output device on quit when possible.
 
-If JustSing launches and finds the system output still set to BlackHole from a previous session, it switches back to the first compatible physical output device.
+If JustSing launches and finds the system output still set to BlackHole from a previous session, it switches back to the first compatible physical output device. Stale Process Tap aggregate devices from crashed sessions are cleaned up on launch.
+
+## Toggle Behavior
+
+- **First toggle on** starts the audio pipeline and ramps intensity to your configured target.
+- **Toggle off** ramps intensity to zero (passthrough) but keeps the pipeline running for instant re-toggle.
+- **Quit** fully tears down capture and restores your previous system output device.
+- **Last on/off state** is remembered across restarts; if you had reduction enabled, JustSing restores it after the pipeline is healthy (brief passthrough first).
+
+## Debugging
+
+Logs are written to `~/Library/Logs/JustSing/JustSing.log`.
 
 ## Project Structure
 
@@ -107,4 +120,4 @@ Scripts/build-app.sh    Package JustSing.app from SPM build output
 
 ## License
 
-Not yet specified.
+MIT — see [LICENSE](LICENSE).

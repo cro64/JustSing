@@ -13,7 +13,7 @@ final class SettingsPopoverViewController: NSViewController {
     private let audioEngine: AudioEngine
 
     private let intensitySlider = NSSlider(value: 100, minValue: 0, maxValue: 100, target: nil, action: nil)
-    private let makeupSlider = NSSlider(value: 0, minValue: 0, maxValue: 12, target: nil, action: nil)
+    private let makeupSlider = NSSlider(value: 4.5, minValue: 0, maxValue: 12, target: nil, action: nil)
     private let permissionButton = NSButton(title: "Open Microphone Settings…", target: nil, action: nil)
 
     var onSettingsChanged: (() -> Void)?
@@ -44,7 +44,7 @@ final class SettingsPopoverViewController: NSViewController {
         permissionButton.controlSize = .mini
         permissionButton.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         permissionButton.target = self
-        permissionButton.action = #selector(openMicrophoneSettings)
+        permissionButton.action = #selector(openPermissionSettings)
 
         let controls = NSStackView(views: [
             controlCenterRow(symbol: "music.mic", slider: intensitySlider),
@@ -78,7 +78,19 @@ final class SettingsPopoverViewController: NSViewController {
     func reloadFromPreferences() {
         intensitySlider.floatValue = preferences.targetIntensity * 100
         makeupSlider.floatValue = preferences.makeupGainDecibels
-        permissionButton.isHidden = !AudioInputPermission.isDenied
+    }
+
+    func updatePermissionButton(for status: AudioEngineStatus) {
+        switch status {
+        case .permissionRequired(.microphone):
+            permissionButton.title = "Open Microphone Settings…"
+            permissionButton.isHidden = false
+        case .permissionRequired(.systemAudioRecording):
+            permissionButton.title = "Open System Audio Settings…"
+            permissionButton.isHidden = false
+        default:
+            permissionButton.isHidden = true
+        }
     }
 
     private func configureSlider(_ slider: NSSlider, action: Selector) {
@@ -147,8 +159,13 @@ final class SettingsPopoverViewController: NSViewController {
         audioEngine.setMakeupGainDecibels(makeupSlider.floatValue)
     }
 
-    @objc private func openMicrophoneSettings() {
-        AudioInputPermission.openMicrophonePrivacySettings()
+    @objc private func openPermissionSettings() {
+        switch audioEngine.status {
+        case .permissionRequired(.systemAudioRecording):
+            AudioPermission.openSystemAudioRecordingSettings()
+        default:
+            AudioPermission.openMicrophoneSettings()
+        }
     }
 
     @objc private func quit() {

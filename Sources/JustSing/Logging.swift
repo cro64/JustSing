@@ -21,6 +21,11 @@ final class AppLogger {
         append("INFO", message)
     }
 
+    func warning(_ message: String) {
+        logger.warning("\(message, privacy: .public)")
+        append("WARN", message)
+    }
+
     func error(_ message: String) {
         logger.error("\(message, privacy: .public)")
         append("ERROR", message)

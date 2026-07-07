@@ -11,6 +11,12 @@ final class DeviceMonitor {
         mScope: kAudioObjectPropertyScopeGlobal,
         mElement: kAudioObjectPropertyElementMain
     )
+    private var sampleRateAddress = AudioObjectPropertyAddress(
+        mSelector: kAudioDevicePropertyNominalSampleRate,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain
+    )
+    private var listenedSampleRateDeviceID: AudioDeviceID?
 
     init(
         onDeviceChange: @escaping () -> Void,
@@ -36,6 +42,8 @@ final class DeviceMonitor {
             selfPointer
         )
 
+        refreshSampleRateListener()
+
         NSWorkspace.shared.notificationCenter.addObserver(
             self,
             selector: #selector(workspaceWillSleep),
@@ -58,13 +66,47 @@ final class DeviceMonitor {
             deviceChangeListener,
             selfPointer
         )
+        removeSampleRateListener()
         NSWorkspace.shared.notificationCenter.removeObserver(self)
     }
 
     fileprivate func handleDeviceChange() {
+        refreshSampleRateListener()
         DispatchQueue.main.async { [onDeviceChange] in
             onDeviceChange()
         }
+    }
+
+    fileprivate func handleSampleRateChange() {
+        DispatchQueue.main.async { [onDeviceChange] in
+            onDeviceChange()
+        }
+    }
+
+    private func refreshSampleRateListener() {
+        removeSampleRateListener()
+        guard let deviceID = CoreAudioDevices.defaultOutputDeviceID() else { return }
+
+        listenedSampleRateDeviceID = deviceID
+        let selfPointer = Unmanaged.passUnretained(self).toOpaque()
+        AudioObjectAddPropertyListener(
+            deviceID,
+            &sampleRateAddress,
+            sampleRateListener,
+            selfPointer
+        )
+    }
+
+    private func removeSampleRateListener() {
+        guard let deviceID = listenedSampleRateDeviceID else { return }
+        let selfPointer = Unmanaged.passUnretained(self).toOpaque()
+        AudioObjectRemovePropertyListener(
+            deviceID,
+            &sampleRateAddress,
+            sampleRateListener,
+            selfPointer
+        )
+        listenedSampleRateDeviceID = nil
     }
 
     @objc private func workspaceWillSleep() {
@@ -80,5 +122,12 @@ private let deviceChangeListener: AudioObjectPropertyListenerProc = { _, _, _, u
     guard let userData else { return noErr }
     let monitor = Unmanaged<DeviceMonitor>.fromOpaque(userData).takeUnretainedValue()
     monitor.handleDeviceChange()
+    return noErr
+}
+
+private let sampleRateListener: AudioObjectPropertyListenerProc = { _, _, _, userData in
+    guard let userData else { return noErr }
+    let monitor = Unmanaged<DeviceMonitor>.fromOpaque(userData).takeUnretainedValue()
+    monitor.handleSampleRateChange()
     return noErr
 }

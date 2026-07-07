@@ -41,6 +41,8 @@ final class AudioEngine {
     private var previousDefaultOutputID: AudioDeviceID?
     private var sampleRate: Double = 48_000
     private var suppressDeviceRebuild = false
+    private var pendingDeviceRebuild: DispatchWorkItem?
+    private var lastProcessTapPermissionDenied = false
 
     init(preferences: Preferences) {
         self.preferences = preferences
@@ -85,33 +87,63 @@ final class AudioEngine {
         }
     }
 
-    func start() {
-        guard !isRunning else { return }
+    func start(completion: ((Bool) -> Void)? = nil) {
+        guard !isRunning else {
+            completion?(true)
+            return
+        }
 
         if #available(macOS 14.2, *) {
             do {
                 try startProcessTap()
+                completion?(true)
                 return
+            } catch let error as AudioEngineError where error.isLikelyPermissionDenied {
+                lastProcessTapPermissionDenied = true
+                AppLogger.shared.warning(
+                    "Process tap permission denied, falling back to BlackHole: \(error.localizedDescription)"
+                )
             } catch {
-                AppLogger.shared.error("Process tap failed: \(error.localizedDescription)")
-                status = .error(error.localizedDescription)
-                return
+                AppLogger.shared.warning(
+                    "Process tap failed, falling back to BlackHole: \(error.localizedDescription)"
+                )
             }
         }
 
-        guard !AudioInputPermission.isDenied else {
-            status = .permissionRequired
+        startBlackHoleWithPermission(completion: completion)
+    }
+
+    private func startBlackHoleWithPermission(completion: ((Bool) -> Void)? = nil) {
+        guard !AudioPermission.isMicrophoneDenied else {
+            status = .permissionRequired(.microphone)
+            completion?(false)
             return
         }
 
-        do {
-            try startBlackHole()
-        } catch {
-            status = .error(error.localizedDescription)
-            AppLogger.shared.error("Audio engine failed to start: \(error.localizedDescription)")
-            stopAudioUnitsOnly()
-            stopProcessTap()
-            restorePreviousOutput()
+        AudioPermission.requestMicrophone { [weak self] granted in
+            guard let self else { return }
+            guard granted else {
+                self.status = .permissionRequired(.microphone)
+                completion?(false)
+                return
+            }
+
+            do {
+                try self.startBlackHole()
+                completion?(true)
+            } catch {
+                if self.lastProcessTapPermissionDenied,
+                   case AudioEngineError.blackHoleMissing = error {
+                    self.status = .permissionRequired(.systemAudioRecording)
+                } else {
+                    self.status = .error(error.localizedDescription)
+                }
+                AppLogger.shared.error("Audio engine failed to start: \(error.localizedDescription)")
+                self.stopAudioUnitsOnly()
+                self.stopProcessTap()
+                self.restorePreviousOutput()
+                completion?(false)
+            }
         }
     }
 
@@ -231,6 +263,8 @@ final class AudioEngine {
     }
 
     func stop(restoreOutput: Bool) {
+        pendingDeviceRebuild?.cancel()
+        pendingDeviceRebuild = nil
         performInternalAudioChange {
             stopAudioUnitsOnly()
             stopProcessTap()
@@ -408,20 +442,42 @@ final class AudioEngine {
 
     func toggleReduction() {
         if isRunning && isReductionEnabled {
-            stop(restoreOutput: true)
+            disableReduction()
             return
         }
 
         if !isRunning {
-            start()
+            start { [weak self] success in
+                guard let self, success else { return }
+                self.enableReduction()
+            }
+            return
         }
 
+        enableReduction()
+    }
+
+    func enableReduction() {
         guard isRunning, status != .monoInput else { return }
 
         isReductionEnabled = true
+        preferences.lastReductionEnabled = true
         dsp.targetIntensity.store(preferences.targetIntensity)
         dsp.makeupGainDecibels.store(preferences.makeupGainDecibels)
         status = .active
+        AppLogger.shared.info("Vocal reduction enabled (target intensity \(preferences.targetIntensity))")
+    }
+
+    func disableReduction() {
+        guard isRunning else { return }
+
+        isReductionEnabled = false
+        preferences.lastReductionEnabled = false
+        dsp.targetIntensity.store(0)
+        if status != .monoInput {
+            status = .passthrough
+        }
+        AppLogger.shared.info("Vocal reduction disabled — passthrough")
     }
 
     func setTargetIntensity(_ value: Float) {
@@ -439,6 +495,25 @@ final class AudioEngine {
     func setRampDurationMilliseconds(_ value: Float) {
         preferences.rampDurationMilliseconds = value
         dsp.rampDurationMilliseconds.store(value)
+    }
+
+    func scheduleRebuildForDeviceChange() {
+        pendingDeviceRebuild?.cancel()
+
+        let wasReducing = isReductionEnabled
+        if wasReducing {
+            dsp.targetIntensity.store(0)
+        }
+
+        let fadeSeconds = wasReducing
+            ? Double(preferences.rampDurationMilliseconds) / 1000.0 + 0.05
+            : 0
+
+        let item = DispatchWorkItem { [weak self] in
+            self?.rebuildForDeviceChange()
+        }
+        pendingDeviceRebuild = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + fadeSeconds, execute: item)
     }
 
     func rebuildForDeviceChange() {
@@ -459,14 +534,24 @@ final class AudioEngine {
         let shouldRestoreReduction = isReductionEnabled
         let backend = activeCaptureBackend ?? .processTap
         performInternalAudioChange {
-            dsp.targetIntensity.store(0)
             stopAudioUnitsOnly()
             stopProcessTap()
 
             do {
                 switch backend {
                 case .processTap:
-                    try startProcessTap()
+                    if #available(macOS 14.2, *) {
+                        do {
+                            try startProcessTap()
+                        } catch {
+                            AppLogger.shared.warning(
+                                "Process tap rebuild failed, falling back to BlackHole: \(error.localizedDescription)"
+                            )
+                            try startBlackHole()
+                        }
+                    } else {
+                        try startBlackHole()
+                    }
                 case .blackHole:
                     try startBlackHole()
                 }

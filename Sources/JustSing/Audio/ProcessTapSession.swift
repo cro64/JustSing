@@ -49,6 +49,9 @@ enum ProcessTapSession {
         var tapID = AudioObjectID(kAudioObjectUnknown)
         let createStatus = AudioHardwareCreateProcessTap(description, &tapID)
         guard createStatus == noErr else {
+            if AudioPermission.isPermissionDeniedStatus(createStatus) {
+                throw AudioEngineError.processTapPermissionDenied
+            }
             throw AudioEngineError.coreAudio("Create process tap", createStatus)
         }
         guard tapID != kAudioObjectUnknown else {

@@ -27,15 +27,26 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         currentStatus = status
         isFilterActive = audioEngine.isReductionEnabled
         if let button = statusItem.button {
-            button.toolTip = {
-                var text = status.displayText
-                if let backend = audioEngine.activeCaptureBackend {
-                    text += " — \(backend.displayName)"
-                }
-                return text
-            }()
+            var text = status.displayText
+            if let backend = audioEngine.activeCaptureBackend {
+                text += " — \(backend.displayName)"
+            }
+            if let monoTooltip = status.monoInputTooltip {
+                text = monoTooltip
+            }
+            button.toolTip = text
         }
         updateIcon()
+        settingsViewController.updatePermissionButton(for: status)
+    }
+
+    func performToggleWithOnboarding() {
+        OnboardingController.showIfNeeded(
+            preferences: preferences,
+            captureBackend: CaptureBackend.preferred
+        )
+        audioEngine.toggleReduction()
+        updateStatus(audioEngine.status)
     }
 
     private func configureStatusItem() {
@@ -91,8 +102,7 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
             return
         }
 
-        audioEngine.toggleReduction()
-        updateStatus(audioEngine.status)
+        performToggleWithOnboarding()
     }
 
     private func togglePopover(on button: NSStatusBarButton) {
@@ -102,6 +112,7 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         }
 
         settingsViewController.reloadFromPreferences()
+        settingsViewController.updatePermissionButton(for: currentStatus)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
     }
 
