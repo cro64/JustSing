@@ -1,0 +1,763 @@
+import AudioToolbox
+import AVFoundation
+import CoreAudio
+import Foundation
+
+private let unspecifiedAudioStatus = OSStatus(-1)
+
+final class AudioEngine {
+    var onStatusChanged: ((AudioEngineStatus) -> Void)?
+
+    private let preferences: Preferences
+    private let dsp: CenterCancelDSP
+    private let ringBuffer = StereoRingBuffer(capacityPowerOfTwo: 65_536)
+    private let maxFramesPerCallback = 8_192
+
+    private var inputUnit: AudioUnit?
+    private var outputUnit: AudioUnit?
+    private var processTapSetup: TapAggregateSetup?
+    private var processTapProcID: AudioDeviceIOProcID?
+    private let processTapQueue = DispatchQueue(label: "com.justsing.process-tap-io", qos: .userInteractive)
+    private var processTapCallbackCount: UInt64 = 0
+    private var processTapLoggedFirstBuffer = false
+    private var processTapLoggedNilOutput = false
+    private(set) var activeCaptureBackend: CaptureBackend?
+    private var captureBuffers: UnsafeMutableAudioBufferListPointer
+    private let processedLeft: UnsafeMutablePointer<Float>
+    private let processedRight: UnsafeMutablePointer<Float>
+
+    private(set) var status: AudioEngineStatus = .idle {
+        didSet {
+            guard oldValue != status else { return }
+            DispatchQueue.main.async { [status, onStatusChanged] in
+                onStatusChanged?(status)
+            }
+        }
+    }
+
+    private(set) var isRunning = false
+    private(set) var isReductionEnabled = false
+    private(set) var selectedOutputDevice: AudioDevice?
+    private var previousDefaultOutputID: AudioDeviceID?
+    private var sampleRate: Double = 48_000
+    private var suppressDeviceRebuild = false
+
+    init(preferences: Preferences) {
+        self.preferences = preferences
+        dsp = CenterCancelDSP(
+            targetIntensity: 0,
+            makeupGainDecibels: preferences.makeupGainDecibels,
+            rampDurationMilliseconds: preferences.rampDurationMilliseconds
+        )
+        captureBuffers = AudioBufferList.allocate(maximumBuffers: 2)
+        processedLeft = UnsafeMutablePointer<Float>.allocate(capacity: maxFramesPerCallback)
+        processedRight = UnsafeMutablePointer<Float>.allocate(capacity: maxFramesPerCallback)
+        processedLeft.initialize(repeating: 0, count: maxFramesPerCallback)
+        processedRight.initialize(repeating: 0, count: maxFramesPerCallback)
+    }
+
+    deinit {
+        stop(restoreOutput: true)
+        processedLeft.deinitialize(count: maxFramesPerCallback)
+        processedRight.deinitialize(count: maxFramesPerCallback)
+        processedLeft.deallocate()
+        processedRight.deallocate()
+        captureBuffers.unsafeMutablePointer.deallocate()
+    }
+
+    func availableOutputDevices() -> [AudioDevice] {
+        CoreAudioDevices.outputDevices()
+    }
+
+    func selectOutputDevice(_ device: AudioDevice) {
+        selectedOutputDevice = device
+        preferences.preferredOutputDeviceUID = device.uid
+
+        guard isRunning else { return }
+        rebuildForDeviceChange()
+    }
+
+    func recoverOrphanedBlackHoleIfNeeded() {
+        CoreAudioDevices.logDeviceSnapshot(reason: "launch")
+
+        guard
+            let defaultID = CoreAudioDevices.defaultOutputDeviceID(),
+            let defaultDevice = CoreAudioDevices.device(for: defaultID),
+            defaultDevice.isBlackHole,
+            let fallback = CoreAudioDevices.outputDevices().first
+        else {
+            return
+        }
+
+        do {
+            try CoreAudioDevices.setDefaultOutputDevice(fallback.id)
+            AppLogger.shared.info("Recovered orphaned BlackHole default output by switching to \(fallback.name)")
+        } catch {
+            AppLogger.shared.error("Failed to recover orphaned BlackHole output: \(error.localizedDescription)")
+        }
+    }
+
+    func start() {
+        guard !isRunning else { return }
+
+        if #available(macOS 14.2, *) {
+            do {
+                try startProcessTap()
+                return
+            } catch {
+                AppLogger.shared.error("Process tap failed: \(error.localizedDescription)")
+                status = .error(error.localizedDescription)
+                return
+            }
+        }
+
+        guard !AudioInputPermission.isDenied else {
+            status = .permissionRequired
+            return
+        }
+
+        do {
+            try startBlackHole()
+        } catch {
+            status = .error(error.localizedDescription)
+            AppLogger.shared.error("Audio engine failed to start: \(error.localizedDescription)")
+            stopAudioUnitsOnly()
+            stopProcessTap()
+            restorePreviousOutput()
+        }
+    }
+
+    private func startProcessTap() throws {
+        if #available(macOS 14.2, *) {
+            try performInternalAudioChange {
+                let output = try resolveOutputDevice()
+                selectedOutputDevice = output
+
+                let aggregateOutputUID: String
+                if let systemOutputID = CoreAudioDevices.defaultSystemOutputDeviceID(),
+                   let systemOutput = CoreAudioDevices.device(for: systemOutputID),
+                   systemOutput.isOutputCapable,
+                   !systemOutput.isBlackHole {
+                    aggregateOutputUID = systemOutput.uid
+                } else {
+                    aggregateOutputUID = output.uid
+                }
+
+                let setup = try ProcessTapSession.create(outputDeviceUID: aggregateOutputUID)
+                processTapSetup = setup
+                sampleRate = setup.sampleRate
+
+                if let currentDefaultID = CoreAudioDevices.defaultOutputDeviceID(),
+                   let currentDefaultDevice = CoreAudioDevices.device(for: currentDefaultID),
+                   !currentDefaultDevice.isBlackHole,
+                   !currentDefaultDevice.uid.hasPrefix("com.justsing.aggregate.") {
+                    previousDefaultOutputID = currentDefaultID
+                }
+
+                try CoreAudioDevices.setDefaultOutputDevice(setup.aggregateID)
+                AppLogger.shared.info(
+                    "Switched default output to tap aggregate \(setup.aggregateID) (was \(previousDefaultOutputID.map(String.init) ?? "unknown"))"
+                )
+
+                ringBuffer.reset()
+                dsp.reset()
+                dsp.targetIntensity.store(0)
+                dsp.makeupGainDecibels.store(preferences.makeupGainDecibels)
+                dsp.rampDurationMilliseconds.store(preferences.rampDurationMilliseconds)
+                processTapCallbackCount = 0
+                processTapLoggedFirstBuffer = false
+                processTapLoggedNilOutput = false
+
+                let engine = self
+                processTapProcID = try ProcessTapSession.startIO(
+                    setup: setup,
+                    queue: processTapQueue
+                ) { _, inInputData, _, outOutputData, _ in
+                    engine.handleProcessTapIO(
+                        inInputData: inInputData,
+                        outOutputData: outOutputData
+                    )
+                }
+
+                isRunning = true
+                isReductionEnabled = false
+                activeCaptureBackend = .processTap
+                let channelCount = Int(setup.streamFormat.mChannelsPerFrame)
+                status = channelCount < 2 ? .monoInput : .passthrough
+                AppLogger.shared.info(
+                    "Audio engine started with Process Tap IO on aggregate \(setup.aggregateID) and \(output.name) output"
+                )
+            }
+        }
+    }
+
+    private func startBlackHole() throws {
+        try performInternalAudioChange {
+        let blackHole = try requireBlackHole()
+        let output = try resolveOutputDevice()
+        selectedOutputDevice = output
+        sampleRate = nominalSampleRate(for: output.id) ?? 48_000
+
+        if let currentDefaultID = CoreAudioDevices.defaultOutputDeviceID(),
+           let currentDefaultDevice = CoreAudioDevices.device(for: currentDefaultID),
+           !currentDefaultDevice.isBlackHole {
+            previousDefaultOutputID = currentDefaultID
+        }
+
+        try CoreAudioDevices.setDefaultOutputDevice(blackHole.id)
+        try configureAudioUnits(inputDevice: blackHole, outputDevice: output)
+
+        ringBuffer.reset()
+        dsp.reset()
+        dsp.targetIntensity.store(0)
+        dsp.makeupGainDecibels.store(preferences.makeupGainDecibels)
+        dsp.rampDurationMilliseconds.store(preferences.rampDurationMilliseconds)
+
+        try startUnit(inputUnit, label: "input")
+        try startUnit(outputUnit, label: "output")
+
+        isRunning = true
+        isReductionEnabled = false
+        activeCaptureBackend = .blackHole
+        status = blackHole.inputChannelCount < 2 ? .monoInput : .passthrough
+        AppLogger.shared.info("Audio engine started with BlackHole input and \(output.name) output")
+        }
+    }
+
+    private func ingestCapturedAudio(
+        left: UnsafePointer<Float>,
+        right: UnsafePointer<Float>,
+        frameCount: Int
+    ) {
+        guard frameCount > 0, frameCount <= maxFramesPerCallback else { return }
+
+        dsp.process(
+            inputLeft: left,
+            inputRight: right,
+            outputLeft: processedLeft,
+            outputRight: processedRight,
+            frameCount: frameCount,
+            sampleRate: sampleRate
+        )
+        ringBuffer.write(left: processedLeft, right: processedRight, frameCount: frameCount)
+    }
+
+    func stop(restoreOutput: Bool) {
+        performInternalAudioChange {
+            stopAudioUnitsOnly()
+            stopProcessTap()
+
+            if restoreOutput {
+                restorePreviousOutput()
+            }
+
+            isReductionEnabled = false
+            activeCaptureBackend = nil
+            status = .idle
+        }
+    }
+
+    private func stopProcessTap() {
+        if #available(macOS 14.2, *) {
+            if let setup = processTapSetup {
+                ProcessTapSession.stopIO(setup: setup, procID: processTapProcID)
+            }
+            processTapProcID = nil
+            ProcessTapSession.destroy(processTapSetup)
+        }
+        processTapSetup = nil
+        processTapCallbackCount = 0
+        processTapLoggedFirstBuffer = false
+        processTapLoggedNilOutput = false
+    }
+
+    private func handleProcessTapIO(
+        inInputData: UnsafePointer<AudioBufferList>?,
+        outOutputData: UnsafeMutablePointer<AudioBufferList>?
+    ) {
+        guard let inInputData, let audioFormat = processTapSetup?.audioFormat else { return }
+        guard let outOutputData else {
+            if !processTapLoggedNilOutput {
+                processTapLoggedNilOutput = true
+                AppLogger.shared.error("Process tap IO proc received nil outOutputData — cannot play audio")
+            }
+            return
+        }
+
+        guard let inputBuffer = AVAudioPCMBuffer(
+            pcmFormat: audioFormat,
+            bufferListNoCopy: UnsafeMutablePointer(mutating: inInputData),
+            deallocator: nil
+        ) else {
+            return
+        }
+
+        let frameCount = tapFrameCount(for: inputBuffer, format: audioFormat)
+        guard frameCount > 0, frameCount <= maxFramesPerCallback else { return }
+        guard extractStereoFloat(
+            from: inputBuffer,
+            format: audioFormat,
+            left: processedLeft,
+            right: processedRight,
+            frameCount: frameCount
+        ) else {
+            return
+        }
+
+        dsp.process(
+            inputLeft: processedLeft,
+            inputRight: processedRight,
+            outputLeft: processedLeft,
+            outputRight: processedRight,
+            frameCount: frameCount,
+            sampleRate: sampleRate
+        )
+
+        writeInterleavedStereo(
+            to: outOutputData,
+            left: processedLeft,
+            right: processedRight,
+            frameCount: frameCount
+        )
+
+        processTapCallbackCount += 1
+        if !processTapLoggedFirstBuffer {
+            processTapLoggedFirstBuffer = true
+            let peak = peakStereoMagnitude(left: processedLeft, right: processedRight, frameCount: frameCount)
+            let layout = describeOutputBufferList(outOutputData)
+            AppLogger.shared.info(
+                "Process tap IO: frames=\(frameCount) peak=\(String(format: "%.4f", peak)) output=\(layout)"
+            )
+        } else if processTapCallbackCount % 120 == 0 {
+            let peak = peakStereoMagnitude(left: processedLeft, right: processedRight, frameCount: frameCount)
+            AppLogger.shared.info(
+                "Process tap IO heartbeat: callbacks=\(processTapCallbackCount) peak=\(String(format: "%.4f", peak))"
+            )
+        }
+    }
+
+    private func tapFrameCount(for buffer: AVAudioPCMBuffer, format: AVAudioFormat) -> Int {
+        if buffer.frameLength > 0 {
+            return Int(buffer.frameLength)
+        }
+
+        let buffers = UnsafeMutableAudioBufferListPointer(
+            UnsafeMutablePointer(mutating: buffer.audioBufferList)
+        )
+        guard let first = buffers.first, first.mDataByteSize > 0 else { return 0 }
+        let channels = max(Int(format.channelCount), 1)
+        return Int(first.mDataByteSize) / (MemoryLayout<Float>.size * channels)
+    }
+
+    private func extractStereoFloat(
+        from buffer: AVAudioPCMBuffer,
+        format: AVAudioFormat,
+        left: UnsafeMutablePointer<Float>,
+        right: UnsafeMutablePointer<Float>,
+        frameCount: Int
+    ) -> Bool {
+        if format.isInterleaved {
+            guard let data = buffer.audioBufferList.pointee.mBuffers.mData else { return false }
+            let samples = data.assumingMemoryBound(to: Float.self)
+            for frame in 0..<frameCount {
+                left[frame] = samples[frame * 2]
+                right[frame] = samples[frame * 2 + 1]
+            }
+            return true
+        }
+
+        guard let channels = buffer.floatChannelData else { return false }
+        if format.channelCount >= 2 {
+            left.update(from: channels[0], count: frameCount)
+            right.update(from: channels[1], count: frameCount)
+            return true
+        }
+
+        left.update(from: channels[0], count: frameCount)
+        for frame in 0..<frameCount {
+            right[frame] = channels[0][frame]
+        }
+        return true
+    }
+
+    private func writeInterleavedStereo(
+        to output: UnsafeMutablePointer<AudioBufferList>,
+        left: UnsafePointer<Float>,
+        right: UnsafePointer<Float>,
+        frameCount: Int
+    ) {
+        let buffers = UnsafeMutableAudioBufferListPointer(output)
+        guard let data = buffers.first?.mData else { return }
+
+        let byteCount = frameCount * 2 * MemoryLayout<Float>.size
+        let interleaved = data.assumingMemoryBound(to: Float.self)
+        for frame in 0..<frameCount {
+            interleaved[frame * 2] = left[frame]
+            interleaved[frame * 2 + 1] = right[frame]
+        }
+        buffers[0].mDataByteSize = UInt32(byteCount)
+    }
+
+    private func describeOutputBufferList(_ output: UnsafeMutablePointer<AudioBufferList>) -> String {
+        let buffers = UnsafeMutableAudioBufferListPointer(output)
+        let parts = (0..<buffers.count).map { index in
+            "b\(index):ch=\(buffers[index].mNumberChannels),bytes=\(buffers[index].mDataByteSize)"
+        }
+        return parts.joined(separator: " ")
+    }
+
+    private func peakStereoMagnitude(
+        left: UnsafePointer<Float>,
+        right: UnsafePointer<Float>,
+        frameCount: Int
+    ) -> Float {
+        var peak: Float = 0
+        for frame in 0..<frameCount {
+            peak = max(peak, abs(left[frame]), abs(right[frame]))
+        }
+        return peak
+    }
+
+    func toggleReduction() {
+        if isRunning && isReductionEnabled {
+            stop(restoreOutput: true)
+            return
+        }
+
+        if !isRunning {
+            start()
+        }
+
+        guard isRunning, status != .monoInput else { return }
+
+        isReductionEnabled = true
+        dsp.targetIntensity.store(preferences.targetIntensity)
+        status = .active
+    }
+
+    func setTargetIntensity(_ value: Float) {
+        preferences.targetIntensity = value
+        if isReductionEnabled {
+            dsp.targetIntensity.store(value)
+        }
+    }
+
+    func setMakeupGainDecibels(_ value: Float) {
+        preferences.makeupGainDecibels = value
+        dsp.makeupGainDecibels.store(value)
+    }
+
+    func setRampDurationMilliseconds(_ value: Float) {
+        preferences.rampDurationMilliseconds = value
+        dsp.rampDurationMilliseconds.store(value)
+    }
+
+    func rebuildForDeviceChange() {
+        guard isRunning, !suppressDeviceRebuild else { return }
+
+        if activeCaptureBackend == .processTap,
+           let defaultID = CoreAudioDevices.defaultOutputDeviceID(),
+           let defaultDevice = CoreAudioDevices.device(for: defaultID),
+           defaultDevice.uid.hasPrefix("com.justsing.aggregate.") {
+            return
+        }
+
+        guard let resolved = try? resolveOutputDevice() else { return }
+        if let selected = selectedOutputDevice, resolved.uid == selected.uid {
+            return
+        }
+
+        let shouldRestoreReduction = isReductionEnabled
+        let backend = activeCaptureBackend ?? .processTap
+        performInternalAudioChange {
+            dsp.targetIntensity.store(0)
+            stopAudioUnitsOnly()
+            stopProcessTap()
+
+            do {
+                switch backend {
+                case .processTap:
+                    try startProcessTap()
+                case .blackHole:
+                    try startBlackHole()
+                }
+                isReductionEnabled = shouldRestoreReduction
+                dsp.targetIntensity.store(isReductionEnabled ? preferences.targetIntensity : 0)
+                if let output = selectedOutputDevice {
+                    AppLogger.shared.info("Audio engine rebuilt for output device \(output.name)")
+                }
+                if isReductionEnabled {
+                    status = .active
+                } else if activeCaptureBackend == .blackHole,
+                          let blackHole = CoreAudioDevices.blackHoleDevice(),
+                          blackHole.inputChannelCount < 2 {
+                    status = .monoInput
+                } else {
+                    status = .passthrough
+                }
+            } catch {
+                status = .error(error.localizedDescription)
+                AppLogger.shared.error("Audio engine rebuild failed: \(error.localizedDescription)")
+                stop(restoreOutput: true)
+            }
+        }
+    }
+
+    private func performInternalAudioChange(_ work: () throws -> Void) rethrows {
+        suppressDeviceRebuild = true
+        defer { suppressDeviceRebuild = false }
+        try work()
+    }
+
+    private func performInternalAudioChange(_ work: () -> Void) {
+        suppressDeviceRebuild = true
+        defer { suppressDeviceRebuild = false }
+        work()
+    }
+
+    fileprivate func handleInput(
+        actionFlags: UnsafeMutablePointer<AudioUnitRenderActionFlags>,
+        timestamp: UnsafePointer<AudioTimeStamp>,
+        busNumber: UInt32,
+        frameCount: UInt32
+    ) -> OSStatus {
+        guard let inputUnit, Int(frameCount) <= maxFramesPerCallback else {
+            return kAudio_ParamError
+        }
+
+        let byteCount = frameCount * UInt32(MemoryLayout<Float>.size)
+        captureBuffers[0].mNumberChannels = 1
+        captureBuffers[0].mDataByteSize = byteCount
+        captureBuffers[0].mData = UnsafeMutableRawPointer(processedLeft)
+        captureBuffers[1].mNumberChannels = 1
+        captureBuffers[1].mDataByteSize = byteCount
+        captureBuffers[1].mData = UnsafeMutableRawPointer(processedRight)
+
+        let renderStatus = AudioUnitRender(
+            inputUnit,
+            actionFlags,
+            timestamp,
+            busNumber,
+            frameCount,
+            captureBuffers.unsafeMutablePointer
+        )
+        guard renderStatus == noErr else { return renderStatus }
+
+        ingestCapturedAudio(
+            left: processedLeft,
+            right: processedRight,
+            frameCount: Int(frameCount)
+        )
+        return noErr
+    }
+
+    fileprivate func handleOutput(ioData: UnsafeMutablePointer<AudioBufferList>?, frameCount: UInt32) -> OSStatus {
+        guard let ioData else { return kAudio_ParamError }
+        let buffers = UnsafeMutableAudioBufferListPointer(ioData)
+        guard buffers.count >= 2,
+              let leftData = buffers[0].mData,
+              let rightData = buffers[1].mData
+        else {
+            return kAudio_ParamError
+        }
+
+        let left = leftData.bindMemory(to: Float.self, capacity: Int(frameCount))
+        let right = rightData.bindMemory(to: Float.self, capacity: Int(frameCount))
+        ringBuffer.read(left: left, right: right, frameCount: Int(frameCount))
+        buffers[0].mDataByteSize = frameCount * UInt32(MemoryLayout<Float>.size)
+        buffers[1].mDataByteSize = frameCount * UInt32(MemoryLayout<Float>.size)
+        return noErr
+    }
+
+    private func requireBlackHole() throws -> AudioDevice {
+        CoreAudioDevices.logDeviceSnapshot(reason: "require BlackHole")
+
+        guard let blackHole = CoreAudioDevices.blackHoleDevice() else {
+            if FileManager.default.fileExists(atPath: "/Library/Audio/Plug-Ins/HAL/BlackHole2ch.driver") {
+                throw AudioEngineError.blackHoleDriverInstalledButNotLoaded
+            }
+            throw AudioEngineError.blackHoleMissing
+        }
+        guard blackHole.inputChannelCount >= 2 else {
+            throw AudioEngineError.unsupportedFormat(
+                "BlackHole is visible to CoreAudio as \"\(blackHole.name)\", but reports input=\(blackHole.inputChannelCount), output=\(blackHole.outputChannelCount). Restart CoreAudio or reboot."
+            )
+        }
+        return blackHole
+    }
+
+    private func resolveOutputDevice() throws -> AudioDevice {
+        if let uid = preferences.preferredOutputDeviceUID,
+           let preferred = CoreAudioDevices.device(withUID: uid),
+           preferred.isOutputCapable,
+           !preferred.isBlackHole {
+            return preferred
+        }
+
+        if let defaultID = CoreAudioDevices.defaultOutputDeviceID(),
+           let defaultDevice = CoreAudioDevices.device(for: defaultID),
+           defaultDevice.isOutputCapable,
+           !defaultDevice.isBlackHole {
+            return defaultDevice
+        }
+
+        guard let first = CoreAudioDevices.outputDevices().first else {
+            throw AudioEngineError.noPhysicalOutput
+        }
+        return first
+    }
+
+    private func configureAudioUnits(inputDevice: AudioDevice, outputDevice: AudioDevice) throws {
+        inputUnit = try makeHALUnit()
+        outputUnit = try makeHALUnit()
+
+        guard let inputUnit, let outputUnit else {
+            throw AudioEngineError.coreAudio("Unable to create audio units", unspecifiedAudioStatus)
+        }
+
+        var format = stereoFloatFormat(sampleRate: sampleRate)
+        try configureInputUnit(inputUnit, deviceID: inputDevice.id, format: &format)
+        try configureOutputUnit(outputUnit, deviceID: outputDevice.id, format: &format)
+    }
+
+    private func configureInputUnit(_ unit: AudioUnit, deviceID: AudioDeviceID, format: inout AudioStreamBasicDescription) throws {
+        var one: UInt32 = 1
+        var zero: UInt32 = 0
+        var mutableDeviceID = deviceID
+        var callback = AURenderCallbackStruct(
+            inputProc: inputCallback,
+            inputProcRefCon: Unmanaged.passUnretained(self).toOpaque()
+        )
+
+        try check(AudioUnitSetProperty(unit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Input, 1, &one, UInt32(MemoryLayout<UInt32>.size)), "Enable input IO")
+        try check(AudioUnitSetProperty(unit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Output, 0, &zero, UInt32(MemoryLayout<UInt32>.size)), "Disable input unit output IO")
+        try check(AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0, &mutableDeviceID, UInt32(MemoryLayout<AudioDeviceID>.size)), "Set capture input device")
+        try check(AudioUnitSetProperty(unit, kAudioOutputUnitProperty_SetInputCallback, kAudioUnitScope_Global, 0, &callback, UInt32(MemoryLayout<AURenderCallbackStruct>.size)), "Set input callback")
+        try check(AudioUnitSetProperty(unit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Output, 1, &format, UInt32(MemoryLayout<AudioStreamBasicDescription>.size)), "Set input stream format")
+        try check(AudioUnitInitialize(unit), "Initialize input unit")
+    }
+
+    private func configureOutputUnit(_ unit: AudioUnit, deviceID: AudioDeviceID, format: inout AudioStreamBasicDescription) throws {
+        var one: UInt32 = 1
+        var zero: UInt32 = 0
+        var mutableDeviceID = deviceID
+        var callback = AURenderCallbackStruct(
+            inputProc: outputCallback,
+            inputProcRefCon: Unmanaged.passUnretained(self).toOpaque()
+        )
+
+        try check(AudioUnitSetProperty(unit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Output, 0, &one, UInt32(MemoryLayout<UInt32>.size)), "Enable output IO")
+        try check(AudioUnitSetProperty(unit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Input, 1, &zero, UInt32(MemoryLayout<UInt32>.size)), "Disable output unit input IO")
+        try check(AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0, &mutableDeviceID, UInt32(MemoryLayout<AudioDeviceID>.size)), "Set physical output device")
+        try check(AudioUnitSetProperty(unit, kAudioUnitProperty_SetRenderCallback, kAudioUnitScope_Input, 0, &callback, UInt32(MemoryLayout<AURenderCallbackStruct>.size)), "Set output callback")
+        try check(AudioUnitSetProperty(unit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Input, 0, &format, UInt32(MemoryLayout<AudioStreamBasicDescription>.size)), "Set output stream format")
+        try check(AudioUnitInitialize(unit), "Initialize output unit")
+    }
+
+    private func makeHALUnit() throws -> AudioUnit {
+        var description = AudioComponentDescription(
+            componentType: kAudioUnitType_Output,
+            componentSubType: kAudioUnitSubType_HALOutput,
+            componentManufacturer: kAudioUnitManufacturer_Apple,
+            componentFlags: 0,
+            componentFlagsMask: 0
+        )
+
+        guard let component = AudioComponentFindNext(nil, &description) else {
+            throw AudioEngineError.coreAudio("Unable to find HAL output component", unspecifiedAudioStatus)
+        }
+
+        var unit: AudioUnit?
+        let status = AudioComponentInstanceNew(component, &unit)
+        guard status == noErr, let unit else {
+            throw AudioEngineError.coreAudio("Unable to create HAL output unit", status)
+        }
+        return unit
+    }
+
+    private func startUnit(_ unit: AudioUnit?, label: String) throws {
+        guard let unit else {
+            throw AudioEngineError.coreAudio("Missing \(label) audio unit", unspecifiedAudioStatus)
+        }
+        try check(AudioOutputUnitStart(unit), "Start \(label) unit")
+    }
+
+    private func stopAudioUnitsOnly() {
+        if let inputUnit {
+            AudioOutputUnitStop(inputUnit)
+            AudioUnitUninitialize(inputUnit)
+            AudioComponentInstanceDispose(inputUnit)
+        }
+        if let outputUnit {
+            AudioOutputUnitStop(outputUnit)
+            AudioUnitUninitialize(outputUnit)
+            AudioComponentInstanceDispose(outputUnit)
+        }
+        inputUnit = nil
+        outputUnit = nil
+        isRunning = false
+        isReductionEnabled = false
+        dsp.targetIntensity.store(0)
+        ringBuffer.reset()
+    }
+
+    private func restorePreviousOutput() {
+        guard let previousDefaultOutputID else { return }
+
+        do {
+            try CoreAudioDevices.setDefaultOutputDevice(previousDefaultOutputID)
+            AppLogger.shared.info("Restored default output to device \(previousDefaultOutputID)")
+            self.previousDefaultOutputID = nil
+        } catch {
+            AppLogger.shared.error("Failed to restore previous output: \(error.localizedDescription)")
+        }
+    }
+
+    private func nominalSampleRate(for deviceID: AudioDeviceID) -> Double? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyNominalSampleRate,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var sampleRate = Float64(0)
+        var dataSize = UInt32(MemoryLayout<Float64>.size)
+        let status = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &dataSize, &sampleRate)
+        guard status == noErr, sampleRate > 0 else { return nil }
+        return sampleRate
+    }
+
+    private func stereoFloatFormat(sampleRate: Double) -> AudioStreamBasicDescription {
+        AudioStreamBasicDescription(
+            mSampleRate: sampleRate,
+            mFormatID: kAudioFormatLinearPCM,
+            mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked | kAudioFormatFlagIsNonInterleaved,
+            mBytesPerPacket: UInt32(MemoryLayout<Float>.size),
+            mFramesPerPacket: 1,
+            mBytesPerFrame: UInt32(MemoryLayout<Float>.size),
+            mChannelsPerFrame: 2,
+            mBitsPerChannel: 32,
+            mReserved: 0
+        )
+    }
+
+    private func check(_ status: OSStatus, _ message: String) throws {
+        guard status == noErr else {
+            throw AudioEngineError.coreAudio(message, status)
+        }
+    }
+}
+
+private let inputCallback: AURenderCallback = { refCon, actionFlags, timestamp, busNumber, frameCount, _ in
+    let engine = Unmanaged<AudioEngine>.fromOpaque(refCon).takeUnretainedValue()
+    return engine.handleInput(
+        actionFlags: actionFlags,
+        timestamp: timestamp,
+        busNumber: busNumber,
+        frameCount: frameCount
+    )
+}
+
+private let outputCallback: AURenderCallback = { refCon, _, _, _, frameCount, ioData in
+    let engine = Unmanaged<AudioEngine>.fromOpaque(refCon).takeUnretainedValue()
+    return engine.handleOutput(ioData: ioData, frameCount: frameCount)
+}
