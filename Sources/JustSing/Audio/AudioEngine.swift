@@ -37,7 +37,7 @@ final class AudioEngine {
 
     private(set) var isRunning = false
     private(set) var isReductionEnabled = false
-    private(set) var selectedOutputDevice: AudioDevice?
+    private var activeOutputDevice: AudioDevice?
     private var previousDefaultOutputID: AudioDeviceID?
     private var sampleRate: Double = 48_000
     private var suppressDeviceRebuild = false
@@ -63,18 +63,6 @@ final class AudioEngine {
         processedLeft.deallocate()
         processedRight.deallocate()
         captureBuffers.unsafeMutablePointer.deallocate()
-    }
-
-    func availableOutputDevices() -> [AudioDevice] {
-        CoreAudioDevices.outputDevices()
-    }
-
-    func selectOutputDevice(_ device: AudioDevice) {
-        selectedOutputDevice = device
-        preferences.preferredOutputDeviceUID = device.uid
-
-        guard isRunning else { return }
-        rebuildForDeviceChange()
     }
 
     func recoverOrphanedBlackHoleIfNeeded() {
@@ -131,7 +119,7 @@ final class AudioEngine {
         if #available(macOS 14.2, *) {
             try performInternalAudioChange {
                 let output = try resolveOutputDevice()
-                selectedOutputDevice = output
+                activeOutputDevice = output
 
                 let aggregateOutputUID: String
                 if let systemOutputID = CoreAudioDevices.defaultSystemOutputDeviceID(),
@@ -195,7 +183,7 @@ final class AudioEngine {
         try performInternalAudioChange {
         let blackHole = try requireBlackHole()
         let output = try resolveOutputDevice()
-        selectedOutputDevice = output
+        activeOutputDevice = output
         sampleRate = nominalSampleRate(for: output.id) ?? 48_000
 
         if let currentDefaultID = CoreAudioDevices.defaultOutputDeviceID(),
@@ -432,6 +420,7 @@ final class AudioEngine {
 
         isReductionEnabled = true
         dsp.targetIntensity.store(preferences.targetIntensity)
+        dsp.makeupGainDecibels.store(preferences.makeupGainDecibels)
         status = .active
     }
 
@@ -463,7 +452,7 @@ final class AudioEngine {
         }
 
         guard let resolved = try? resolveOutputDevice() else { return }
-        if let selected = selectedOutputDevice, resolved.uid == selected.uid {
+        if let active = activeOutputDevice, resolved.uid == active.uid {
             return
         }
 
@@ -483,7 +472,7 @@ final class AudioEngine {
                 }
                 isReductionEnabled = shouldRestoreReduction
                 dsp.targetIntensity.store(isReductionEnabled ? preferences.targetIntensity : 0)
-                if let output = selectedOutputDevice {
+                if let output = activeOutputDevice {
                     AppLogger.shared.info("Audio engine rebuilt for output device \(output.name)")
                 }
                 if isReductionEnabled {
@@ -587,17 +576,18 @@ final class AudioEngine {
     }
 
     private func resolveOutputDevice() throws -> AudioDevice {
-        if let uid = preferences.preferredOutputDeviceUID,
-           let preferred = CoreAudioDevices.device(withUID: uid),
-           preferred.isOutputCapable,
-           !preferred.isBlackHole {
-            return preferred
+        if let systemOutputID = CoreAudioDevices.defaultSystemOutputDeviceID(),
+           let systemOutput = CoreAudioDevices.device(for: systemOutputID),
+           systemOutput.isOutputCapable,
+           !systemOutput.isBlackHole {
+            return systemOutput
         }
 
         if let defaultID = CoreAudioDevices.defaultOutputDeviceID(),
            let defaultDevice = CoreAudioDevices.device(for: defaultID),
            defaultDevice.isOutputCapable,
-           !defaultDevice.isBlackHole {
+           !defaultDevice.isBlackHole,
+           !defaultDevice.uid.hasPrefix("com.justsing.aggregate.") {
             return defaultDevice
         }
 

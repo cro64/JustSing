@@ -26,7 +26,6 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     func updateStatus(_ status: AudioEngineStatus) {
         currentStatus = status
         isFilterActive = audioEngine.isReductionEnabled
-        settingsViewController.updateStatus(status)
         if let button = statusItem.button {
             button.toolTip = {
                 var text = status.displayText
@@ -39,10 +38,6 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         updateIcon()
     }
 
-    func reloadOutputDevices() {
-        settingsViewController.reloadOutputDevices()
-    }
-
     private func configureStatusItem() {
         guard let button = statusItem.button else { return }
         button.imagePosition = .imageOnly
@@ -53,7 +48,7 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     }
 
     private func configurePopover() {
-        popover.contentSize = NSSize(width: 300, height: 320)
+        popover.contentSize = NSSize(width: 220, height: 108)
         popover.behavior = .transient
         popover.delegate = self
         popover.contentViewController = settingsViewController
@@ -107,7 +102,6 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         }
 
         settingsViewController.reloadFromPreferences()
-        settingsViewController.updateStatus(currentStatus)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
     }
 

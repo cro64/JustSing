@@ -51,14 +51,12 @@ Open `build/JustSing.app`. JustSing lives in the menu bar as a headphones icon.
 |---|---|
 | **Left-click** icon | Toggle vocal reduction on/off |
 | **Right-click** icon | Open settings |
-| **⌘⌥V** | Toggle vocal reduction (global hotkey) |
+| **⌘⌥M** | Toggle vocal reduction (global hotkey) |
 
 ### Settings
 
 - **Intensity** — how much center content to remove (0–100%)
 - **Makeup Gain** — loudness compensation after reduction (0–12 dB)
-- **Output Device** — physical output for processed audio
-- **Launch at Login** — start JustSing automatically
 
 ### Icon Colors
 

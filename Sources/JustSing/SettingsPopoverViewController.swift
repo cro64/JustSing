@@ -1,18 +1,20 @@
 import AppKit
 
 final class SettingsPopoverViewController: NSViewController {
+    private enum Layout {
+        static let width: CGFloat = 220
+        static let margin: CGFloat = 10
+        static let rowSpacing: CGFloat = 8
+        static let rowHeight: CGFloat = 24
+        static let iconSize: CGFloat = 15
+    }
+
     private let preferences: Preferences
     private let audioEngine: AudioEngine
 
-    private let statusLabel = NSTextField(labelWithString: "")
-    private let intensityValueLabel = NSTextField(labelWithString: "")
     private let intensitySlider = NSSlider(value: 100, minValue: 0, maxValue: 100, target: nil, action: nil)
-    private let makeupValueLabel = NSTextField(labelWithString: "")
     private let makeupSlider = NSSlider(value: 0, minValue: 0, maxValue: 12, target: nil, action: nil)
-    private let outputPopup = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let launchAtLoginCheckbox = NSButton(checkboxWithTitle: "Launch at Login", target: nil, action: nil)
-    private let hotkeyLabel = NSTextField(labelWithString: "Toggle: ⌘⌥V")
-    private let permissionButton = NSButton(title: "Open Microphone Settings", target: nil, action: nil)
+    private let permissionButton = NSButton(title: "Open Microphone Settings…", target: nil, action: nil)
 
     var onSettingsChanged: (() -> Void)?
     var onQuit: (() -> Void)?
@@ -29,68 +31,45 @@ final class SettingsPopoverViewController: NSViewController {
     }
 
     override func loadView() {
-        view = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 320))
-        view.wantsLayer = true
+        let effectView = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: Layout.width, height: 108))
+        effectView.material = .popover
+        effectView.blendingMode = .behindWindow
+        effectView.state = .active
+        view = effectView
 
-        statusLabel.font = .systemFont(ofSize: 12, weight: .medium)
-        statusLabel.textColor = .secondaryLabelColor
-        statusLabel.lineBreakMode = .byWordWrapping
-        statusLabel.maximumNumberOfLines = 2
+        configureSlider(intensitySlider, action: #selector(intensityChanged))
+        configureSlider(makeupSlider, action: #selector(makeupGainChanged))
 
-        intensitySlider.isContinuous = true
-        intensitySlider.target = self
-        intensitySlider.action = #selector(intensityChanged)
-
-        makeupSlider.isContinuous = true
-        makeupSlider.target = self
-        makeupSlider.action = #selector(makeupGainChanged)
-
-        launchAtLoginCheckbox.target = self
-        launchAtLoginCheckbox.action = #selector(toggleLaunchAtLogin)
-
-        permissionButton.bezelStyle = .rounded
+        permissionButton.bezelStyle = .inline
+        permissionButton.controlSize = .mini
+        permissionButton.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         permissionButton.target = self
         permissionButton.action = #selector(openMicrophoneSettings)
 
-        hotkeyLabel.font = .systemFont(ofSize: 11)
-        hotkeyLabel.textColor = .tertiaryLabelColor
-
-        let quitButton = NSButton(title: "Quit JustSing", target: self, action: #selector(quit))
-        quitButton.bezelStyle = .rounded
-
-        let intensityHeader = rowHeader(title: "Intensity", valueLabel: intensityValueLabel)
-        let makeupHeader = rowHeader(title: "Makeup Gain", valueLabel: makeupValueLabel)
-        let outputLabel = sectionLabel("Output Device")
-
-        let stack = NSStackView(views: [
-            statusLabel,
-            separator(),
-            intensityHeader,
-            intensitySlider,
-            makeupHeader,
-            makeupSlider,
-            outputLabel,
-            outputPopup,
-            launchAtLoginCheckbox,
-            hotkeyLabel,
-            permissionButton,
-            quitButton
+        let controls = NSStackView(views: [
+            controlCenterRow(symbol: "music.mic", slider: intensitySlider),
+            controlCenterRow(symbol: "speaker.wave.2.fill", slider: makeupSlider),
+            permissionButton
         ])
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 10
-        stack.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(stack)
+        controls.orientation = .vertical
+        controls.alignment = .leading
+        controls.spacing = Layout.rowSpacing
+
+        let content = NSStackView(views: [controls, quitFooter()])
+        content.orientation = .vertical
+        content.alignment = .leading
+        content.spacing = Layout.rowSpacing
+        content.setCustomSpacing(4, after: controls)
+        content.translatesAutoresizingMaskIntoConstraints = false
+        effectView.addSubview(content)
 
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            stack.topAnchor.constraint(equalTo: view.topAnchor),
-            stack.bottomAnchor.constraint(lessThanOrEqualTo: view.bottomAnchor),
-            intensitySlider.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -32),
-            makeupSlider.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -32),
-            outputPopup.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -32)
+            content.leadingAnchor.constraint(equalTo: effectView.leadingAnchor, constant: Layout.margin),
+            content.trailingAnchor.constraint(equalTo: effectView.trailingAnchor, constant: -Layout.margin),
+            content.topAnchor.constraint(equalTo: effectView.topAnchor, constant: Layout.margin),
+            content.bottomAnchor.constraint(equalTo: effectView.bottomAnchor, constant: -Layout.margin),
+            intensitySlider.widthAnchor.constraint(greaterThanOrEqualToConstant: 120),
+            makeupSlider.widthAnchor.constraint(greaterThanOrEqualToConstant: 120)
         ])
 
         reloadFromPreferences()
@@ -99,118 +78,73 @@ final class SettingsPopoverViewController: NSViewController {
     func reloadFromPreferences() {
         intensitySlider.floatValue = preferences.targetIntensity * 100
         makeupSlider.floatValue = preferences.makeupGainDecibels
-        launchAtLoginCheckbox.state = LaunchAtLoginController.isEnabled ? .on : .off
         permissionButton.isHidden = !AudioInputPermission.isDenied
-        reloadOutputDevices()
-        updateValueLabels()
     }
 
-    func updateStatus(_ status: AudioEngineStatus) {
-        var text = status.displayText
-        if let backend = audioEngine.activeCaptureBackend {
-            text += " (\(backend.displayName))"
-        }
-        statusLabel.stringValue = text
+    private func configureSlider(_ slider: NSSlider, action: Selector) {
+        slider.controlSize = .mini
+        slider.isContinuous = true
+        slider.target = self
+        slider.action = action
     }
 
-    func reloadOutputDevices() {
-        outputPopup.removeAllItems()
-        let devices = audioEngine.availableOutputDevices()
+    private func controlCenterRow(symbol: String, slider: NSSlider) -> NSView {
+        let icon = NSImageView()
+        icon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+        icon.contentTintColor = .secondaryLabelColor
+        icon.translatesAutoresizingMaskIntoConstraints = false
 
-        if devices.isEmpty {
-            outputPopup.addItem(withTitle: "No compatible output")
-            outputPopup.isEnabled = false
-            return
-        }
-
-        outputPopup.isEnabled = true
-        var selectedIndex = 0
-        for (index, device) in devices.enumerated() {
-            outputPopup.addItem(withTitle: device.name)
-            outputPopup.lastItem?.representedObject = device.uid
-            if isSelected(device) {
-                selectedIndex = index
-            }
-        }
-        outputPopup.selectItem(at: selectedIndex)
-        outputPopup.target = self
-        outputPopup.action = #selector(outputDeviceChanged)
-    }
-
-    private func isSelected(_ device: AudioDevice) -> Bool {
-        if let selected = audioEngine.selectedOutputDevice {
-            return selected.uid == device.uid
-        }
-        return preferences.preferredOutputDeviceUID == device.uid
-    }
-
-    private func sectionLabel(_ text: String) -> NSTextField {
-        let label = NSTextField(labelWithString: text)
-        label.font = .systemFont(ofSize: 11, weight: .semibold)
-        label.textColor = .secondaryLabelColor
-        return label
-    }
-
-    private func rowHeader(title: String, valueLabel: NSTextField) -> NSView {
-        let titleLabel = NSTextField(labelWithString: title)
-        titleLabel.font = .systemFont(ofSize: 12, weight: .medium)
-
-        valueLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
-        valueLabel.textColor = .secondaryLabelColor
-        valueLabel.alignment = .right
-
-        let row = NSStackView(views: [titleLabel, valueLabel])
+        let row = NSStackView(views: [icon, slider])
         row.orientation = .horizontal
-        row.distribution = .fillEqually
+        row.spacing = 8
+        row.alignment = .centerY
         row.translatesAutoresizingMaskIntoConstraints = false
-        row.widthAnchor.constraint(equalToConstant: 268).isActive = true
+
+        NSLayoutConstraint.activate([
+            icon.widthAnchor.constraint(equalToConstant: Layout.iconSize),
+            icon.heightAnchor.constraint(equalToConstant: Layout.iconSize),
+            row.heightAnchor.constraint(equalToConstant: Layout.rowHeight)
+        ])
         return row
     }
 
-    private func separator() -> NSBox {
-        let box = NSBox()
-        box.boxType = .separator
-        box.translatesAutoresizingMaskIntoConstraints = false
-        box.widthAnchor.constraint(equalToConstant: 268).isActive = true
-        return box
-    }
+    private func quitFooter() -> NSView {
+        let separator = NSBox()
+        separator.boxType = .separator
+        separator.translatesAutoresizingMaskIntoConstraints = false
 
-    private func updateValueLabels() {
-        intensityValueLabel.stringValue = "\(Int(intensitySlider.floatValue.rounded()))%"
-        makeupValueLabel.stringValue = String(format: "%.1f dB", makeupSlider.floatValue)
+        let quitButton = NSButton(title: "", target: self, action: #selector(quit))
+        quitButton.isBordered = false
+        quitButton.bezelStyle = .inline
+        quitButton.font = .systemFont(ofSize: 12)
+        quitButton.attributedTitle = NSAttributedString(
+            string: "Quit JustSing",
+            attributes: [.foregroundColor: NSColor.systemRed, .font: NSFont.systemFont(ofSize: 12)]
+        )
+        quitButton.translatesAutoresizingMaskIntoConstraints = false
+
+        let footer = NSStackView(views: [separator, quitButton])
+        footer.orientation = .vertical
+        footer.alignment = .centerX
+        footer.spacing = 6
+        footer.translatesAutoresizingMaskIntoConstraints = false
+
+        NSLayoutConstraint.activate([
+            separator.widthAnchor.constraint(equalTo: footer.widthAnchor),
+            quitButton.widthAnchor.constraint(equalTo: footer.widthAnchor),
+            quitButton.heightAnchor.constraint(equalToConstant: 22),
+            footer.widthAnchor.constraint(equalToConstant: Layout.width - Layout.margin * 2)
+        ])
+        return footer
     }
 
     @objc private func intensityChanged() {
         audioEngine.setTargetIntensity(intensitySlider.floatValue / 100)
-        updateValueLabels()
         onSettingsChanged?()
     }
 
     @objc private func makeupGainChanged() {
         audioEngine.setMakeupGainDecibels(makeupSlider.floatValue)
-        updateValueLabels()
-    }
-
-    @objc private func outputDeviceChanged() {
-        guard
-            let uid = outputPopup.selectedItem?.representedObject as? String,
-            let device = CoreAudioDevices.device(withUID: uid)
-        else {
-            return
-        }
-        audioEngine.selectOutputDevice(device)
-        reloadOutputDevices()
-    }
-
-    @objc private func toggleLaunchAtLogin() {
-        let shouldEnable = launchAtLoginCheckbox.state == .on
-        do {
-            try LaunchAtLoginController.setEnabled(shouldEnable)
-            preferences.launchAtLogin = shouldEnable
-        } catch {
-            launchAtLoginCheckbox.state = .off
-            AppLogger.shared.error("Failed to update launch-at-login: \(error.localizedDescription)")
-        }
     }
 
     @objc private func openMicrophoneSettings() {

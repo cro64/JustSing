@@ -30,7 +30,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 let item = DispatchWorkItem { [weak self] in
                     guard let self, audioEngine.isRunning else { return }
                     audioEngine.rebuildForDeviceChange()
-                    menuBarController?.reloadOutputDevices()
                 }
                 deviceRebuildWorkItem = item
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.75, execute: item)
