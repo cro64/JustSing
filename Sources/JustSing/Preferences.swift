@@ -11,10 +11,12 @@ final class Preferences {
         static let rampDurationMilliseconds = "rampDurationMilliseconds"
         static let lastReductionEnabled = "lastReductionEnabled"
         static let hasCompletedOnboarding = "hasCompletedOnboarding"
+        static let processingMode = "processingMode"
+        static let separationModelVariant = "separationModelVariant"
         static let preferencesSchemaVersion = "preferencesSchemaVersion"
     }
 
-    private static let currentSchemaVersion = 3
+    private static let currentSchemaVersion = 6
 
     private let defaults: UserDefaults
 
@@ -26,7 +28,9 @@ final class Preferences {
             Key.makeupGainDecibels: Double(Self.defaultMakeupGainDecibels),
             Key.rampDurationMilliseconds: Double(Self.defaultRampDurationMilliseconds),
             Key.lastReductionEnabled: false,
-            Key.hasCompletedOnboarding: false
+            Key.hasCompletedOnboarding: false,
+            Key.processingMode: ProcessingMode.centerVocalCut.rawValue,
+            Key.separationModelVariant: SeparationModelVariant.balanced.rawValue
         ])
         seedDefaultsIfNeeded()
         migrateIfNeeded()
@@ -48,6 +52,12 @@ final class Preferences {
         if defaults.object(forKey: Key.hasCompletedOnboarding) == nil {
             defaults.set(false, forKey: Key.hasCompletedOnboarding)
         }
+        if defaults.object(forKey: Key.processingMode) == nil {
+            defaults.set(ProcessingMode.centerVocalCut.rawValue, forKey: Key.processingMode)
+        }
+        if defaults.object(forKey: Key.separationModelVariant) == nil {
+            defaults.set(SeparationModelVariant.balanced.rawValue, forKey: Key.separationModelVariant)
+        }
     }
 
     private func migrateIfNeeded() {
@@ -56,6 +66,18 @@ final class Preferences {
 
         if version < 3 {
             makeupGainDecibels = Self.defaultMakeupGainDecibels
+        }
+
+        if version < 5,
+           let raw = defaults.string(forKey: Key.processingMode),
+           let migrated = ProcessingMode.fromPersisted(raw),
+           migrated.rawValue != raw {
+            defaults.set(migrated.rawValue, forKey: Key.processingMode)
+        }
+
+        if version < 6,
+           defaults.object(forKey: Key.separationModelVariant) == nil {
+            defaults.set(SeparationModelVariant.balanced.rawValue, forKey: Key.separationModelVariant)
         }
 
         defaults.set(Self.currentSchemaVersion, forKey: Key.preferencesSchemaVersion)
@@ -84,6 +106,28 @@ final class Preferences {
     var hasCompletedOnboarding: Bool {
         get { defaults.bool(forKey: Key.hasCompletedOnboarding) }
         set { defaults.set(newValue, forKey: Key.hasCompletedOnboarding) }
+    }
+
+    var processingMode: ProcessingMode {
+        get {
+            guard let raw = defaults.string(forKey: Key.processingMode),
+                  let mode = ProcessingMode.fromPersisted(raw) else {
+                return .centerVocalCut
+            }
+            return mode
+        }
+        set { defaults.set(newValue.rawValue, forKey: Key.processingMode) }
+    }
+
+    var separationModelVariant: SeparationModelVariant {
+        get {
+            guard let raw = defaults.string(forKey: Key.separationModelVariant),
+                  let variant = SeparationModelVariant.fromPersisted(raw) else {
+                return .balanced
+            }
+            return variant
+        }
+        set { defaults.set(newValue.rawValue, forKey: Key.separationModelVariant) }
     }
 }
 

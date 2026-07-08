@@ -1,6 +1,11 @@
 import AppKit
 
 final class MenuBarController: NSObject, NSPopoverDelegate {
+    private enum Layout {
+        static let popoverWidth: CGFloat = 220
+        static let popoverHeight: CGFloat = 184
+    }
+
     private let preferences: Preferences
     private let audioEngine: AudioEngine
     private let statusItem: NSStatusItem
@@ -25,7 +30,7 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
 
     func updateStatus(_ status: AudioEngineStatus) {
         currentStatus = status
-        isFilterActive = audioEngine.isReductionEnabled
+        isFilterActive = audioEngine.isVocalReductionActive
         if let button = statusItem.button {
             var text = status.displayText
             if let backend = audioEngine.activeCaptureBackend {
@@ -59,7 +64,7 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     }
 
     private func configurePopover() {
-        popover.contentSize = NSSize(width: 220, height: 108)
+        popover.contentSize = NSSize(width: Layout.popoverWidth, height: Layout.popoverHeight)
         popover.behavior = .transient
         popover.delegate = self
         popover.contentViewController = settingsViewController
@@ -82,6 +87,8 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
             color = .systemRed
         } else if case .permissionRequired = currentStatus {
             color = .systemOrange
+        } else if case .warmingUp = currentStatus {
+            color = .systemCyan
         } else if case .monoInput = currentStatus {
             color = .systemYellow
         } else if isFilterActive {
@@ -111,6 +118,7 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
             return
         }
 
+        _ = settingsViewController.view
         settingsViewController.reloadFromPreferences()
         settingsViewController.updatePermissionButton(for: currentStatus)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)

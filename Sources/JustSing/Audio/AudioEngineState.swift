@@ -10,6 +10,7 @@ enum AudioEngineStatus: Equatable {
     case idle
     case passthrough
     case active
+    case warmingUp
     case monoInput
     case permissionRequired(AudioPermissionKind)
     case error(String)
@@ -19,9 +20,11 @@ enum AudioEngineStatus: Equatable {
         case .idle:
             return "Idle"
         case .passthrough:
-            return "Ready — passthrough"
+            return "Ready — system audio passthrough"
         case .active:
             return "Active — reducing vocals"
+        case .warmingUp:
+            return "Warming up — neural model loading"
         case .monoInput:
             return "Mono input — vocal reduction unavailable"
         case .permissionRequired(.microphone):
@@ -35,7 +38,7 @@ enum AudioEngineStatus: Equatable {
 
     var monoInputTooltip: String? {
         guard case .monoInput = self else { return nil }
-        return "Center-channel cancellation requires stereo audio. Mono sources cannot be processed with Mode A."
+        return "Mono input — Center Cut unavailable"
     }
 }
 

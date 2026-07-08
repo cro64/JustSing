@@ -20,7 +20,9 @@ let package = Package(
                 .linkedFramework("AudioToolbox"),
                 .linkedFramework("AVFoundation"),
                 .linkedFramework("CoreAudio"),
-                .linkedFramework("Carbon")
+                .linkedFramework("Carbon"),
+                .linkedFramework("CoreML"),
+                .linkedFramework("Accelerate")
             ]
         )
     ]
