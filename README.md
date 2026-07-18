@@ -32,7 +32,6 @@ Turn any song into an instant instrumental for karaoke or practice, right from y
 - [How audio capture works](#how-audio-capture-works)
 - [Development](#development)
 - [Limits](#limits)
-- [License](#license)
 
 ## Modes
 
@@ -122,14 +121,14 @@ Intensity and Gain apply to Center Cut and Neural only. Neural is grayed out unt
 
 The waveform in the menu bar changes with status:
 
-| Look | Meaning |
-|------|---------|
-| Full center bar (menu-bar tint) | Idle / reduction off |
-| Center dot (accent) | Reduction on |
-| Cyan | Neural warming up |
-| Yellow | Mono input, Center Cut unavailable |
-| Orange | Permission required |
-| Red | Error |
+| | State | Meaning |
+| :---: | --- | --- |
+| <img src="Resources/readme/icon-off.png" width="28" alt="Off" /> | **Off** | Idle / reduction off (menu-bar tint) |
+| <img src="Resources/readme/icon-on.png" width="28" alt="On" /> | **On** | Reduction active (accent) |
+| <img src="Resources/readme/icon-warming.png" width="28" alt="Warming up" /> | **Warming up** | Neural model loading |
+| <img src="Resources/readme/icon-mono.png" width="28" alt="Mono input" /> | **Mono input** | Center Cut unavailable |
+| <img src="Resources/readme/icon-permission.png" width="28" alt="Permission needed" /> | **Permission needed** | Grant access in System Settings |
+| <img src="Resources/readme/icon-error.png" width="28" alt="Error" /> | **Error** | Something went wrong |
 
 ## Neural model
 
@@ -166,6 +165,8 @@ Sources/MinusOne/Audio/     Engine, DSP, neural pipeline
 Sources/CAtomics/           Realtime primitives
 Resources/MinusOne.icon     App icon (Icon Composer)
 Resources/MinusOneIcon.svg  Logo vector (active waveform)
+Resources/MinusOneDropDown.png  Settings panel preview
+Resources/readme/           Menu-bar icon states for README
 Scripts/build-app.sh
 Scripts/package-icon.sh
 Scripts/download-model.sh
@@ -179,7 +180,3 @@ Logs: `~/Library/Logs/MinusOne/MinusOne.log`
 - Center Cut can also mute other centered instruments, not just vocals. Neural avoids that pattern but isn't perfect either.
 - Neural adds ~10 s delay and re-warms after track changes (dry audio until ready).
 - BlackHole processes all system audio. Custom app selection requires Process Tap.
-
-## License
-
-MIT, see [LICENSE](LICENSE).
