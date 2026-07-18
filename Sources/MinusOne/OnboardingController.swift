@@ -1,6 +1,6 @@
 import AppKit
 
-/// First-launch welcome + Neural model download picker.
+/// First-launch welcome + Neural model download.
 enum OnboardingController {
     private static var activeSession: OnboardingSession?
 
@@ -23,7 +23,6 @@ private final class OnboardingSession: NSObject, NSWindowDelegate {
     private let preferences: Preferences
     private let onClose: () -> Void
     private let window: NSWindow
-    private let modelPopUp = NSPopUpButton(frame: .zero, pullsDown: false)
     private let modelInfoButton = NSButton(title: "", target: nil, action: nil)
     private let statusLabel = NSTextField(labelWithString: "")
     private let progress = NSProgressIndicator()
@@ -33,7 +32,8 @@ private final class OnboardingSession: NSObject, NSWindowDelegate {
     private var isBusy = false
     private var previousActivationPolicy: NSApplication.ActivationPolicy = .accessory
     private var downloadTask: Task<Void, Never>?
-    private var downloadingVariant: SeparationModelVariant?
+
+    private let variant = SeparationModelVariant.balanced
 
     init(
         preferences: Preferences,
@@ -42,7 +42,7 @@ private final class OnboardingSession: NSObject, NSWindowDelegate {
         self.preferences = preferences
         self.onClose = onClose
 
-        let size = NSSize(width: 360, height: 280)
+        let size = NSSize(width: 360, height: 260)
         window = NSWindow(
             contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.titled, .closable],
@@ -97,18 +97,17 @@ private final class OnboardingSession: NSObject, NSWindowDelegate {
         name.alignment = .center
 
         let body = NSTextField(wrappingLabelWithString: """
-        Live vocal reduction for system audio. Download a Neural model for best quality, or skip and use Center Cut.
+        Live vocal reduction for system audio. Download the Neural model for best quality (\(variant.approximateDownloadSizeText)), or skip and use Center Cut.
         """)
         body.font = .systemFont(ofSize: NSFont.systemFontSize)
         body.textColor = .secondaryLabelColor
         body.alignment = .center
 
-        let modelLabel = NSTextField(labelWithString: "Model")
+        configureModelInfoButton()
+
+        let modelLabel = NSTextField(labelWithString: "Neural model · Demucs")
         modelLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
         modelLabel.textColor = .secondaryLabelColor
-
-        configureModelInfoButton()
-        configureModelPopUp()
 
         let modelHeaderSpacer = NSView()
         modelHeaderSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -158,7 +157,7 @@ private final class OnboardingSession: NSObject, NSWindowDelegate {
         header.spacing = 8
 
         let stack = NSStackView(views: [
-            header, body, modelHeader, modelPopUp, statusLabel, progress, buttonRow
+            header, body, modelHeader, statusLabel, progress, buttonRow
         ])
         stack.orientation = .vertical
         stack.alignment = .leading
@@ -166,7 +165,6 @@ private final class OnboardingSession: NSObject, NSWindowDelegate {
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.setCustomSpacing(12, after: header)
         stack.setCustomSpacing(14, after: body)
-        stack.setCustomSpacing(4, after: modelHeader)
         stack.setCustomSpacing(14, after: progress)
 
         root.addSubview(stack)
@@ -178,7 +176,6 @@ private final class OnboardingSession: NSObject, NSWindowDelegate {
             header.widthAnchor.constraint(equalTo: stack.widthAnchor),
             body.widthAnchor.constraint(equalTo: stack.widthAnchor),
             modelHeader.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            modelPopUp.widthAnchor.constraint(equalTo: stack.widthAnchor),
             progress.widthAnchor.constraint(equalTo: stack.widthAnchor),
             buttonRow.widthAnchor.constraint(equalTo: stack.widthAnchor),
             statusLabel.widthAnchor.constraint(equalTo: stack.widthAnchor)
@@ -205,64 +202,17 @@ private final class OnboardingSession: NSObject, NSWindowDelegate {
         modelInfoButton.heightAnchor.constraint(equalToConstant: 18).isActive = true
     }
 
-    private func configureModelPopUp() {
-        modelPopUp.removeAllItems()
-        for variant in SeparationModelVariant.allCases {
-            modelPopUp.addItem(withTitle: variant.onboardingChoiceTitle)
-            let item = modelPopUp.lastItem
-            item?.representedObject = variant.rawValue
-            if !variant.hasCoreMLRelease {
-                item?.isEnabled = false
-            }
-            if SeparationModelFactory.isAvailable(variant) {
-                item?.title = "\(variant.displayName) — Installed"
-            }
-        }
-        if let index = SeparationModelVariant.allCases.firstIndex(of: preferences.separationModelVariant),
-           SeparationModelVariant.allCases[index].hasCoreMLRelease {
-            modelPopUp.selectItem(at: index)
-        } else if let balanced = SeparationModelVariant.allCases.firstIndex(of: .balanced) {
-            modelPopUp.selectItem(at: balanced)
-        }
-        modelPopUp.target = self
-        modelPopUp.action = #selector(modelSelectionChanged)
-    }
-
-    private func selectedVariant() -> SeparationModelVariant {
-        guard let raw = modelPopUp.selectedItem?.representedObject as? String,
-              let variant = SeparationModelVariant(rawValue: raw) else {
-            return .balanced
-        }
-        return variant
-    }
-
     private func defaultStatusText() -> String {
-        let variant = selectedVariant()
         if SeparationModelFactory.isAvailable(variant) {
             return "Already installed."
         }
-        if variant.hasCoreMLRelease {
-            return "One-time download, \(variant.approximateDownloadSizeText)."
-        }
-        return "Not available yet — choose Balanced or skip."
+        return "One-time download, \(variant.approximateDownloadSizeText)."
     }
 
     private func updatePrimaryButtonTitle() {
-        let variant = selectedVariant()
-        if SeparationModelFactory.isAvailable(variant) {
-            primaryButton.title = "Continue"
-        } else if variant.hasCoreMLRelease {
-            primaryButton.title = "Download & Continue"
-        } else {
-            primaryButton.title = "Continue"
-        }
-    }
-
-    @objc private func modelSelectionChanged() {
-        modelInfoPopover?.performClose(nil)
-        statusLabel.stringValue = defaultStatusText()
-        statusLabel.textColor = .secondaryLabelColor
-        updatePrimaryButtonTitle()
+        primaryButton.title = SeparationModelFactory.isAvailable(variant)
+            ? "Continue"
+            : "Download & Continue"
     }
 
     @objc private func showModelInfo() {
@@ -271,7 +221,6 @@ private final class OnboardingSession: NSObject, NSWindowDelegate {
             return
         }
 
-        let variant = selectedVariant()
         let popover = NSPopover()
         popover.behavior = .transient
         popover.animates = true
@@ -298,21 +247,20 @@ private final class OnboardingSession: NSObject, NSWindowDelegate {
 
     @objc private func primaryClicked() {
         guard !isBusy else { return }
-        let variant = selectedVariant()
         preferences.separationModelVariant = variant
 
-        if SeparationModelFactory.isAvailable(variant) || !variant.hasCoreMLRelease {
-            finish(downloaded: SeparationModelFactory.isAvailable(variant))
+        if SeparationModelFactory.isAvailable(variant) {
+            finish(downloaded: true)
             return
         }
 
-        beginDownload(variant)
+        beginDownload()
     }
 
     private func confirmCancelDownload(closingWindow: Bool) {
         let alert = NSAlert()
         alert.messageText = "Cancel download?"
-        alert.informativeText = "The model isn’t installed yet. You can download it later from settings, or skip and use Center Cut."
+        alert.informativeText = "The model isn’t installed yet. You can download later with Scripts/download-model.sh, or skip and use Center Cut."
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Keep Downloading")
         alert.addButton(withTitle: closingWindow ? "Cancel & Close" : "Cancel Download")
@@ -324,12 +272,8 @@ private final class OnboardingSession: NSObject, NSWindowDelegate {
     private func cancelDownload(closeAfter: Bool) {
         downloadTask?.cancel()
         downloadTask = nil
-        if let variant = downloadingVariant {
-            ModelDownloadService.cleanupStaging(for: variant)
-        }
-        downloadingVariant = nil
+        ModelDownloadService.cleanupStaging(for: variant)
         isBusy = false
-        modelPopUp.isEnabled = true
         primaryButton.isEnabled = true
         skipButton.isEnabled = true
         skipButton.title = "Skip for Now"
@@ -344,10 +288,8 @@ private final class OnboardingSession: NSObject, NSWindowDelegate {
         }
     }
 
-    private func beginDownload(_ variant: SeparationModelVariant) {
+    private func beginDownload() {
         isBusy = true
-        downloadingVariant = variant
-        modelPopUp.isEnabled = false
         primaryButton.isEnabled = false
         skipButton.isEnabled = true
         skipButton.title = "Cancel"
@@ -358,17 +300,16 @@ private final class OnboardingSession: NSObject, NSWindowDelegate {
         downloadTask = Task { [weak self] in
             guard let self else { return }
             do {
-                try await ModelDownloadService.install(variant) { [weak self] fraction, message in
+                try await ModelDownloadService.install(self.variant) { [weak self] fraction, message in
                     self?.progress.doubleValue = fraction
                     self?.statusLabel.stringValue = message
                 }
                 await MainActor.run {
                     guard !Task.isCancelled else { return }
                     self.downloadTask = nil
-                    self.downloadingVariant = nil
-                    self.preferences.separationModelVariant = variant
+                    self.preferences.separationModelVariant = self.variant
                     self.preferences.processingMode = .aiVocalSeparation
-                    self.statusLabel.stringValue = "\(variant.displayName) installed. Neural mode is ready."
+                    self.statusLabel.stringValue = "Model installed. Neural mode is ready."
                     self.statusLabel.textColor = .secondaryLabelColor
                     self.progress.doubleValue = 1
                     self.skipButton.title = "Skip for Now"
@@ -376,7 +317,6 @@ private final class OnboardingSession: NSObject, NSWindowDelegate {
                 }
             } catch is CancellationError {
                 await MainActor.run {
-                    // cancelDownload already refreshed UI when user confirmed.
                     if self.isBusy {
                         self.cancelDownload(closeAfter: false)
                     }
@@ -384,9 +324,7 @@ private final class OnboardingSession: NSObject, NSWindowDelegate {
             } catch {
                 await MainActor.run {
                     self.downloadTask = nil
-                    self.downloadingVariant = nil
                     self.isBusy = false
-                    self.modelPopUp.isEnabled = true
                     self.primaryButton.isEnabled = true
                     self.skipButton.isEnabled = true
                     self.skipButton.title = "Skip for Now"
@@ -403,7 +341,7 @@ private final class OnboardingSession: NSObject, NSWindowDelegate {
     private func finish(downloaded: Bool) {
         preferences.hasCompletedOnboarding = true
         if downloaded {
-            AppLogger.shared.info("Onboarding completed with model \(preferences.separationModelVariant.rawValue)")
+            AppLogger.shared.info("Onboarding completed with Neural model installed")
         } else {
             AppLogger.shared.info("Onboarding completed without model download")
         }
@@ -413,12 +351,11 @@ private final class OnboardingSession: NSObject, NSWindowDelegate {
         NSApp.setActivationPolicy(previousActivationPolicy)
         isBusy = false
         downloadTask = nil
-        downloadingVariant = nil
         onClose()
     }
 }
 
-/// Compact popover explaining where the selected Neural model comes from.
+/// Compact popover explaining where the Neural model comes from.
 private final class ModelSourceInfoViewController: NSViewController {
     private let variant: SeparationModelVariant
     private let onOpenSource: (URL) -> Void
@@ -448,8 +385,7 @@ private final class ModelSourceInfoViewController: NSViewController {
 
         var arranged: [NSView] = [title, body]
         if variant.sourcePageURL != nil {
-            let linkTitle = variant.huggingFaceRepoID != nil ? "View on Hugging Face" : "View Demucs on GitHub"
-            let link = NSButton(title: linkTitle, target: self, action: #selector(openSource))
+            let link = NSButton(title: "View on Hugging Face", target: self, action: #selector(openSource))
             link.isBordered = false
             link.bezelStyle = .inline
             link.font = .systemFont(ofSize: NSFont.smallSystemFontSize)

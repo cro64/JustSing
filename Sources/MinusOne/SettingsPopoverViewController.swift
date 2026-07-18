@@ -5,20 +5,22 @@ final class SettingsPopoverViewController: NSViewController {
     private let audioEngine: AudioEngine
 
     private let statusHeaderContainer = NSView()
+    private let statusHeader = StatusHeaderView()
     private let intensitySlider = DragValueSlider(value: 100, minValue: 0, maxValue: 100, target: nil, action: nil)
     private let makeupSlider = DragValueSlider(value: 4.5, minValue: 0, maxValue: 12, target: nil, action: nil)
     private let sliderValueOverlay = PopoverUI.valueLabel()
     private let modePopUp = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let modelPopUp = NSPopUpButton(frame: .zero, pullsDown: false)
     private let captureScopePopUp = NSPopUpButton(frame: .zero, pullsDown: false)
     private var appPickerPopUp: NSPopUpButton?
     private let permissionButton = PopoverUI.linkButton(title: "Open Microphone Settings…")
+    private var contentStack: NSStackView?
 
     private var currentStatus: AudioEngineStatus = .idle
     private var activeOverlaySlider: NSSlider?
 
     var onSettingsChanged: (() -> Void)?
     var onQuit: (() -> Void)?
+    var onPreferredSizeChange: ((NSSize) -> Void)?
 
     init(preferences: Preferences, audioEngine: AudioEngine) {
         self.preferences = preferences
@@ -32,8 +34,8 @@ final class SettingsPopoverViewController: NSViewController {
     }
 
     override func loadView() {
-        let size = NSSize(width: PopoverUI.Metrics.width, height: PopoverUI.Metrics.settingsHeight)
-        let (root, effectView) = PopoverUI.makeMenuRoot(size: size)
+        let provisional = PopoverUI.Metrics.menuSize(contentHeight: 200)
+        let (root, effectView) = PopoverUI.makeMenuRoot(size: provisional)
         view = root
 
         configureControls()
@@ -42,24 +44,19 @@ final class SettingsPopoverViewController: NSViewController {
         permissionButton.isHidden = true
         updateCaptureScopeUI()
         refreshStatusHeader()
+        sizeToFitContent()
     }
 
     private func configureContent(in effectView: NSVisualEffectView) {
         var sections: [NSView] = [statusHeaderContainer]
+        statusHeaderContainer.translatesAutoresizingMaskIntoConstraints = false
 
         let processingRows: [NSView] = [
             formRow(label: "Mode", control: modePopUp),
-            formRow(label: "Model", control: modelPopUp),
             PopoverUI.sliderRow(label: "Intensity", slider: intensitySlider),
             PopoverUI.sliderRow(label: "Gain", slider: makeupSlider)
         ]
         sections.append(section(title: "Processing", rows: processingRows))
-
-        var widthConstraints: [NSLayoutConstraint] = [
-            modePopUp.widthAnchor.constraint(greaterThanOrEqualToConstant: PopoverUI.Metrics.controlMinWidth),
-            modelPopUp.widthAnchor.constraint(greaterThanOrEqualToConstant: PopoverUI.Metrics.controlMinWidth),
-            captureScopePopUp.widthAnchor.constraint(greaterThanOrEqualToConstant: PopoverUI.Metrics.controlMinWidth)
-        ]
 
         if #available(macOS 14.2, *) {
             let picker = AppPickerPopUpButton(preferences: preferences, audioEngine: audioEngine)
@@ -69,9 +66,6 @@ final class SettingsPopoverViewController: NSViewController {
                 formRow(label: "Apps", control: picker)
             ]
             sections.append(section(title: "Capture", rows: captureRows))
-            widthConstraints.append(
-                picker.widthAnchor.constraint(greaterThanOrEqualToConstant: PopoverUI.Metrics.controlMinWidth)
-            )
         }
 
         sections.append(permissionButton)
@@ -80,15 +74,38 @@ final class SettingsPopoverViewController: NSViewController {
         let content = PopoverUI.verticalStack(sections, spacing: PopoverUI.Metrics.sectionSpacing)
         content.setCustomSpacing(6, after: statusHeaderContainer)
         content.translatesAutoresizingMaskIntoConstraints = false
+        contentStack = content
         effectView.addSubview(content)
 
+        let pad = PopoverUI.Metrics.padding
+        let contentWidth = PopoverUI.Metrics.contentWidth
         NSLayoutConstraint.activate([
-            content.leadingAnchor.constraint(equalTo: effectView.leadingAnchor, constant: PopoverUI.Metrics.margin),
-            content.trailingAnchor.constraint(equalTo: effectView.trailingAnchor, constant: -PopoverUI.Metrics.margin),
-            content.topAnchor.constraint(equalTo: effectView.topAnchor, constant: PopoverUI.Metrics.margin),
-            content.bottomAnchor.constraint(lessThanOrEqualTo: effectView.bottomAnchor, constant: -PopoverUI.Metrics.margin),
-            content.widthAnchor.constraint(equalToConstant: PopoverUI.Metrics.width - PopoverUI.Metrics.margin * 2)
-        ] + widthConstraints)
+            content.leadingAnchor.constraint(equalTo: effectView.leadingAnchor, constant: pad),
+            content.trailingAnchor.constraint(equalTo: effectView.trailingAnchor, constant: -pad),
+            content.topAnchor.constraint(equalTo: effectView.topAnchor, constant: pad),
+            // Bottom is not pinned — height comes from content, then the panel is sized to fit.
+            content.widthAnchor.constraint(equalToConstant: contentWidth),
+            statusHeaderContainer.heightAnchor.constraint(equalToConstant: PopoverUI.Metrics.rowHeight),
+            statusHeaderContainer.widthAnchor.constraint(equalTo: content.widthAnchor)
+        ])
+    }
+
+    /// Sizes the panel to content width + padding, height from laid-out content.
+    func sizeToFitContent() {
+        guard let contentStack else { return }
+
+        // Give Auto Layout room to measure intrinsic height.
+        let probe = PopoverUI.Metrics.menuSize(contentHeight: 800)
+        view.setFrameSize(probe)
+        view.layoutSubtreeIfNeeded()
+        contentStack.layoutSubtreeIfNeeded()
+
+        let contentHeight = max(contentStack.fittingSize.height, 1)
+        let size = PopoverUI.Metrics.menuSize(contentHeight: contentHeight)
+        preferredContentSize = size
+        view.setFrameSize(size)
+        PopoverUI.updateShadowPath(for: view, size: size)
+        onPreferredSizeChange?(size)
     }
 
     func reloadFromPreferences() {
@@ -96,9 +113,6 @@ final class SettingsPopoverViewController: NSViewController {
 
         if let modeIndex = ProcessingMode.allCases.firstIndex(of: preferences.processingMode) {
             setPopUpSelection(modePopUp, index: modeIndex, action: #selector(modeChanged))
-        }
-        if let modelIndex = SeparationModelVariant.allCases.firstIndex(of: preferences.separationModelVariant) {
-            setPopUpSelection(modelPopUp, index: modelIndex, action: #selector(modelChanged))
         }
         if let scopeIndex = CaptureScope.allCases.firstIndex(of: preferences.captureScope) {
             setPopUpSelection(captureScopePopUp, index: scopeIndex, action: #selector(captureScopeChanged))
@@ -120,6 +134,7 @@ final class SettingsPopoverViewController: NSViewController {
     }
 
     func updatePermissionButton(for status: AudioEngineStatus) {
+        let wasHidden = permissionButton.isHidden
         switch status {
         case .permissionRequired(.microphone):
             permissionButton.title = "Open Microphone Settings…"
@@ -129,6 +144,9 @@ final class SettingsPopoverViewController: NSViewController {
             permissionButton.isHidden = false
         default:
             permissionButton.isHidden = true
+        }
+        if wasHidden != permissionButton.isHidden {
+            sizeToFitContent()
         }
     }
 
@@ -158,13 +176,6 @@ final class SettingsPopoverViewController: NSViewController {
         modePopUp.action = #selector(modeChanged)
         for mode in ProcessingMode.allCases {
             modePopUp.addItem(withTitle: mode.displayName)
-        }
-
-        PopoverUI.configurePopUp(modelPopUp)
-        modelPopUp.target = self
-        modelPopUp.action = #selector(modelChanged)
-        for variant in SeparationModelVariant.allCases {
-            modelPopUp.addItem(withTitle: variant.displayName)
         }
 
         PopoverUI.configurePopUp(captureScopePopUp)
@@ -210,46 +221,41 @@ final class SettingsPopoverViewController: NSViewController {
 
     private func refreshStatusHeader(isFilterActive: Bool? = nil) {
         let active = isFilterActive ?? audioEngine.isVocalReductionActive
-        let (title, subtitle, indicatorColor) = statusCopy(for: currentStatus, isFilterActive: active)
+        let (title, indicatorColor, errorDetail) = statusCopy(for: currentStatus, isFilterActive: active)
 
-        let header = PopoverUI.statusHeader(title: title, subtitle: subtitle, indicatorColor: indicatorColor)
-        statusHeaderContainer.subviews.forEach { $0.removeFromSuperview() }
-        header.translatesAutoresizingMaskIntoConstraints = false
-        statusHeaderContainer.addSubview(header)
-        NSLayoutConstraint.activate([
-            header.leadingAnchor.constraint(equalTo: statusHeaderContainer.leadingAnchor),
-            header.trailingAnchor.constraint(equalTo: statusHeaderContainer.trailingAnchor),
-            header.topAnchor.constraint(equalTo: statusHeaderContainer.topAnchor),
-            header.bottomAnchor.constraint(equalTo: statusHeaderContainer.bottomAnchor)
-        ])
+        if statusHeader.superview !== statusHeaderContainer {
+            statusHeaderContainer.subviews.forEach { $0.removeFromSuperview() }
+            statusHeader.translatesAutoresizingMaskIntoConstraints = false
+            statusHeaderContainer.addSubview(statusHeader)
+            NSLayoutConstraint.activate([
+                statusHeader.leadingAnchor.constraint(equalTo: statusHeaderContainer.leadingAnchor),
+                statusHeader.trailingAnchor.constraint(equalTo: statusHeaderContainer.trailingAnchor),
+                statusHeader.topAnchor.constraint(equalTo: statusHeaderContainer.topAnchor),
+                statusHeader.bottomAnchor.constraint(equalTo: statusHeaderContainer.bottomAnchor)
+            ])
+        }
+        statusHeader.update(title: title, indicatorColor: indicatorColor, errorDetail: errorDetail)
     }
 
-    private func statusCopy(for status: AudioEngineStatus, isFilterActive: Bool) -> (String, String, NSColor) {
+    private func statusCopy(for status: AudioEngineStatus, isFilterActive: Bool) -> (String, NSColor, String?) {
         switch status {
         case .active where isFilterActive:
-            return ("On", preferences.processingMode.displayName, .controlAccentColor)
+            return ("On", .controlAccentColor, nil)
         case .warmingUp:
-            return ("Warming up", "Neural model loading", .systemCyan)
+            return ("Warming up", .systemCyan, nil)
         case .monoInput:
-            return ("Mono input", "Center cut unavailable", .systemYellow)
+            return ("Mono input", .systemYellow, nil)
         case .permissionRequired:
-            return ("Permission needed", "Open Settings to allow", .systemOrange)
+            return ("Permission needed", .systemOrange, nil)
         case .error(let message):
-            return ("Error", Self.truncatedStatusMessage(message), .systemRed)
+            return ("Error", .systemRed, message)
         case .passthrough, .idle:
-            return ("Off", "Right-click to enable", .tertiaryLabelColor)
+            return ("Off", .tertiaryLabelColor, nil)
         default:
             return isFilterActive
-                ? ("On", preferences.processingMode.displayName, .controlAccentColor)
-                : ("Off", "Right-click to enable", .tertiaryLabelColor)
+                ? ("On", .controlAccentColor, nil)
+                : ("Off", .tertiaryLabelColor, nil)
         }
-    }
-
-    private static func truncatedStatusMessage(_ message: String, limit: Int = 30) -> String {
-        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.count > limit else { return trimmed }
-        let end = trimmed.index(trimmed.startIndex, offsetBy: limit)
-        return String(trimmed[..<end]).trimmingCharacters(in: .whitespaces) + "…"
     }
 
     private func refreshControlStates() {
@@ -268,27 +274,6 @@ final class SettingsPopoverViewController: NSViewController {
             item.toolTip = neuralAvailable
                 ? ProcessingMode.aiVocalSeparation.detailText
                 : SeparationModelFactory.modelInstallHint
-        }
-
-        let neuralSelected = mode == .aiVocalSeparation
-        modelPopUp.isEnabled = neuralSelected
-        modelPopUp.alphaValue = neuralSelected ? 1 : 0.45
-
-        for (index, variant) in SeparationModelVariant.allCases.enumerated() {
-            guard let item = modelPopUp.item(at: index) else { continue }
-            let installed = audioEngine.isSeparationModelInstalled(variant)
-            item.isEnabled = true
-            item.attributedTitle = NSAttributedString(
-                string: variant.displayName,
-                attributes: installed || !variant.hasCoreMLRelease
-                    ? (installed ? [:] : [.foregroundColor: NSColor.secondaryLabelColor])
-                    : [.foregroundColor: NSColor.secondaryLabelColor]
-            )
-            item.toolTip = installed
-                ? variant.detailText
-                : (variant.hasCoreMLRelease
-                    ? "Not installed — download from the welcome screen or Scripts/download-model.sh \(variant.rawValue)"
-                    : "CoreML build coming soon")
         }
 
         let reductionEnabled = mode.supportsVocalReduction
@@ -312,7 +297,7 @@ final class SettingsPopoverViewController: NSViewController {
         appPickerPopUp?.alphaValue = selectedApps ? 1 : 0.45
         appPickerPopUp?.toolTip = selectedApps
             ? "Choose which apps get vocal reduction"
-            : "Set Scope to Selected Apps first"
+            : "Set Scope to Custom first"
         captureScopePopUp.toolTip = preferences.captureScope.detailText
         if #available(macOS 14.2, *) {
             (appPickerPopUp as? AppPickerPopUpButton)?.reloadFromPreferences()
@@ -410,23 +395,6 @@ final class SettingsPopoverViewController: NSViewController {
             setPopUpSelection(captureScopePopUp, index: actual, action: #selector(captureScopeChanged))
         }
         updateCaptureScopeUI()
-        onSettingsChanged?()
-    }
-
-    @objc private func modelChanged() {
-        let index = modelPopUp.indexOfSelectedItem
-        guard index >= 0, index < SeparationModelVariant.allCases.count else { return }
-
-        let variant = SeparationModelVariant.allCases[index]
-        guard audioEngine.isSeparationModelInstalled(variant) else {
-            if let revert = SeparationModelVariant.allCases.firstIndex(of: preferences.separationModelVariant) {
-                setPopUpSelection(modelPopUp, index: revert, action: #selector(modelChanged))
-            }
-            return
-        }
-
-        audioEngine.setSeparationModelVariant(variant)
-        refreshControlStates()
         onSettingsChanged?()
     }
 

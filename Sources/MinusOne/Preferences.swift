@@ -15,10 +15,7 @@ final class Preferences {
         static let separationModelVariant = "separationModelVariant"
         static let captureScope = "captureScope"
         static let selectedAppBundleIDs = "selectedAppBundleIDs"
-        static let preferencesSchemaVersion = "preferencesSchemaVersion"
     }
-
-    private static let currentSchemaVersion = 7
 
     private let defaults: UserDefaults
 
@@ -36,60 +33,6 @@ final class Preferences {
             Key.captureScope: CaptureScope.allApps.rawValue,
             Key.selectedAppBundleIDs: [String]()
         ])
-        seedDefaultsIfNeeded()
-        migrateIfNeeded()
-    }
-
-    private func seedDefaultsIfNeeded() {
-        if defaults.object(forKey: Key.targetIntensity) == nil {
-            defaults.set(Double(Self.defaultTargetIntensity), forKey: Key.targetIntensity)
-        }
-        if defaults.object(forKey: Key.makeupGainDecibels) == nil {
-            defaults.set(Double(Self.defaultMakeupGainDecibels), forKey: Key.makeupGainDecibels)
-        }
-        if defaults.object(forKey: Key.rampDurationMilliseconds) == nil {
-            defaults.set(Double(Self.defaultRampDurationMilliseconds), forKey: Key.rampDurationMilliseconds)
-        }
-        if defaults.object(forKey: Key.lastReductionEnabled) == nil {
-            defaults.set(false, forKey: Key.lastReductionEnabled)
-        }
-        if defaults.object(forKey: Key.hasCompletedOnboarding) == nil {
-            defaults.set(false, forKey: Key.hasCompletedOnboarding)
-        }
-        if defaults.object(forKey: Key.processingMode) == nil {
-            defaults.set(ProcessingMode.centerVocalCut.rawValue, forKey: Key.processingMode)
-        }
-        if defaults.object(forKey: Key.separationModelVariant) == nil {
-            defaults.set(SeparationModelVariant.balanced.rawValue, forKey: Key.separationModelVariant)
-        }
-    }
-
-    private func migrateIfNeeded() {
-        let version = defaults.integer(forKey: Key.preferencesSchemaVersion)
-        guard version < Self.currentSchemaVersion else { return }
-
-        if version < 3 {
-            makeupGainDecibels = Self.defaultMakeupGainDecibels
-        }
-
-        if version < 5,
-           let raw = defaults.string(forKey: Key.processingMode),
-           let migrated = ProcessingMode.fromPersisted(raw),
-           migrated.rawValue != raw {
-            defaults.set(migrated.rawValue, forKey: Key.processingMode)
-        }
-
-        if version < 6,
-           defaults.object(forKey: Key.separationModelVariant) == nil {
-            defaults.set(SeparationModelVariant.balanced.rawValue, forKey: Key.separationModelVariant)
-        }
-
-        if version < 7 {
-            defaults.set(CaptureScope.allApps.rawValue, forKey: Key.captureScope)
-            defaults.set([String](), forKey: Key.selectedAppBundleIDs)
-        }
-
-        defaults.set(Self.currentSchemaVersion, forKey: Key.preferencesSchemaVersion)
     }
 
     var targetIntensity: Float {

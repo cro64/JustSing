@@ -53,10 +53,6 @@ final class AudioEngine {
         SeparationModelVariant.allCases.contains { SeparationModelFactory.isAvailable($0) }
     }
 
-    func isSeparationModelInstalled(_ variant: SeparationModelVariant) -> Bool {
-        SeparationModelFactory.isAvailable(variant)
-    }
-
     var loadedSeparationModelVariant: SeparationModelVariant? {
         separationModel?.variant
     }
@@ -682,76 +678,31 @@ final class AudioEngine {
         separationModelLoadTask = task
         separationModelLock.unlock()
 
-        DispatchQueue.global(qos: .utility).async(execute: task)
-    }
-
-    func setSeparationModelVariant(_ variant: SeparationModelVariant) {
-        guard preferences.separationModelVariant != variant else { return }
-        preferences.separationModelVariant = variant
-        separationModelLock.lock()
-        separationModelLoadTask?.cancel()
-        separationModelLoadTask = nil
-        separationModel = nil
-        separationModelLock.unlock()
-        if isRunning {
-            disableReduction()
-            rebuildProcessingPipeline()
-        }
+        DispatchQueue.global(qos: .userInitiated).async(execute: task)
     }
 
     func setProcessingMode(_ mode: ProcessingMode) {
-        if mode == .aiVocalSeparation, !ensureSeparationModelLoaded() {
-            AppLogger.shared.error("Cannot switch to Neural — model failed to load")
-            preferences.processingMode = .centerVocalCut
-            return
+        if mode == .aiVocalSeparation {
+            guard SeparationModelFactory.isAvailable(preferences.separationModelVariant) else {
+                AppLogger.shared.error("Cannot switch to Neural — model not installed")
+                return
+            }
         }
         guard preferences.processingMode != mode else { return }
         preferences.processingMode = mode
 
+        // Load CoreML off the main thread — sync load freezes the UI for tens of seconds.
+        if mode == .aiVocalSeparation {
+            preloadSeparationModelIfNeeded()
+        }
+
         if isRunning {
+            let wasEnabled = isReductionEnabled
             disableReduction()
             rebuildProcessingPipeline()
-        }
-    }
-
-    @discardableResult
-    private func ensureSeparationModelLoaded() -> Bool {
-        separationModelLock.lock()
-        if let separationModel, separationModel.variant == preferences.separationModelVariant {
-            separationModelLock.unlock()
-            return true
-        }
-        separationModel = nil
-        separationModelLock.unlock()
-
-        guard SeparationModelFactory.isAvailable(preferences.separationModelVariant) else { return false }
-        do {
-            let model = try SeparationModelFactory.loadModel(
-                variant: preferences.separationModelVariant,
-                captureSampleRate: sampleRate
-            )
-            separationModelLock.lock()
-            separationModel = model
-            separationModelLock.unlock()
-            return true
-        } catch {
-            AppLogger.shared.error("Failed to load separation model: \(error.localizedDescription)")
-            return false
-        }
-    }
-
-    private func tryLoadSeparationModelIfPresent() {
-        guard SeparationModelFactory.isAvailable(preferences.separationModelVariant) else { return }
-        do {
-            let model = try SeparationModelFactory.loadModel(
-                variant: preferences.separationModelVariant,
-                captureSampleRate: sampleRate
-            )
-            separationModelLock.lock()
-            separationModel = model
-            separationModelLock.unlock()
-        } catch {
-            AppLogger.shared.error("Separation model file found but failed to load: \(error.localizedDescription)")
+            if wasEnabled {
+                enableReduction()
+            }
         }
     }
 

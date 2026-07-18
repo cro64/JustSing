@@ -20,10 +20,10 @@ Capture uses **Process Tap** on macOS 14.2+ (recommended), with **BlackHole** fa
 
 ```sh
 Scripts/build-app.sh release          # → build/MinusOne.app
-Scripts/download-model.sh htdemucs    # Neural only, ~200 MB one-time
+Scripts/download-model.sh             # Neural only, ~200 MB one-time
 ```
 
-Open `build/MinusOne.app`. On first launch, pick a Neural model to download (or skip and use Center Cut). Left-click the menu bar waveform icon for settings, then choose **Neural → Balanced** after the model is installed. Right-click the icon to toggle reduction.
+Open `build/MinusOne.app`. On first launch, download the Neural model (or skip and use Center Cut). Left-click the menu bar waveform icon for settings, then choose **Neural** after the model is installed. Right-click the icon to toggle reduction.
 
 ## Requirements
 
@@ -42,7 +42,7 @@ Open `build/MinusOne.app`. On first launch, pick a Neural model to download (or 
 |--------|--------|
 | Left-click icon | Settings |
 | Right-click icon | Toggle vocal reduction |
-| Capture → Selected Apps → Apps menu | Pick which apps to process |
+| Capture → Custom → Apps menu | Pick which apps to process |
 | ⌘⌥M | Toggle vocal reduction |
 
 ### Settings
@@ -52,25 +52,24 @@ Compact menu-style panel (opens to the right of the icon):
 | Control | Description |
 |---------|-------------|
 | **Mode** | Direct · Center Cut · Neural |
-| **Model** | Neural only — Balanced · Fine-Tuned · Six-Stem |
 | **Intensity** | Vocal removal amount when on (0–100%); value shows while dragging |
 | **Gain** | Loudness compensation (0–12 dB, default 4.5); value shows while dragging |
-| **Capture** | All Apps · Selected Apps (Process Tap only) |
+| **Capture** | All Apps · Custom (Process Tap only) |
 
 Intensity and gain apply to Center Cut and Neural only.
 
-**Selected Apps** only processes checked apps — FaceTime, Discord, and other unchecked apps play normally. Requires Process Tap (macOS 14.2+).
+**Custom** only processes checked apps — FaceTime, Discord, and other unchecked apps play normally. Requires Process Tap (macOS 14.2+).
 
 ### Status header
 
-| Title | Subtitle |
-|-------|----------|
-| **Off** | Right-click to enable |
-| **On** | Direct · Center Cut · Neural |
+| Title | Notes |
+|-------|-------|
+| **Off** | Reduction disabled |
+| **On** | Reduction active |
 | **Warming up** | Neural model loading |
 | **Mono input** | Center cut unavailable |
 | **Permission needed** | Open Settings to allow |
-| **Error** | Short error summary |
+| **Error** | Info button shows the error message |
 
 ### Icon
 
@@ -85,23 +84,17 @@ Official logo is the **active** waveform (center as a dot) — see `Resources/Mi
 | Orange | Permission required |
 | Red | Error |
 
-## Neural models
+## Neural model
 
-| Name | Demucs ID | Stems | Notes |
-|------|-----------|-------|-------|
-| **Balanced** | `htdemucs` | 4 | Default — installable today |
-| **Fine-Tuned** | `htdemucs_ft` | 4 | Best quality, slower — coming soon |
-| **Six-Stem** | `htdemucs_6s` | 6 | +guitar/piano — coming soon |
+Neural mode uses **Demucs v4** (`htdemucs`) — Meta’s open-source 4-stem music separation model, converted to CoreML for Apple Silicon.
 
-Only **Balanced** has a CoreML build. Fine-Tuned and Six-Stem appear grayed in settings until packages are available.
-
-### Install Balanced
+### Install
 
 ```sh
-Scripts/download-model.sh          # same as htdemucs
+Scripts/download-model.sh
 ```
 
-Downloads [HTDemucs FP16 CoreML](https://huggingface.co/dexxdean/htdemucs-coreml) to `~/Library/Application Support/MinusOne/Models/`, compiles once (~20 s), and installs `htdemucs.mlmodelc`. Legacy `HTDemucs_CoreML.*` paths still work.
+Downloads [HTDemucs FP16 CoreML](https://huggingface.co/dexxdean/htdemucs-coreml) to `~/Library/Application Support/MinusOne/Models/`, compiles once (~20 s), and installs `htdemucs.mlmodelc`. Legacy `HTDemucs_CoreML.*` paths still work. The welcome screen can also download it on first launch.
 
 ## Audio routing
 

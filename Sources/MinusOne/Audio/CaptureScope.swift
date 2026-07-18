@@ -10,7 +10,7 @@ enum CaptureScope: String, CaseIterable, Equatable {
         case .allApps:
             return "All Apps"
         case .selectedApps:
-            return "Selected Apps"
+            return "Custom"
         }
     }
 

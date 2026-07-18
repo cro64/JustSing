@@ -71,10 +71,7 @@ final class MenuBarController: NSObject {
     }
 
     private static func makeSettingsPanel() -> NSPanel {
-        let size = NSSize(
-            width: PopoverUI.Metrics.width,
-            height: PopoverUI.Metrics.settingsHeight
-        )
+        let size = PopoverUI.Metrics.menuSize(contentHeight: 200)
         let panel = NSPanel(
             contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.borderless, .nonactivatingPanel],
@@ -108,6 +105,13 @@ final class MenuBarController: NSObject {
         settingsViewController.onQuit = { [weak self] in
             self?.closeSettings()
             NSApp.terminate(nil)
+        }
+        settingsViewController.onPreferredSizeChange = { [weak self] size in
+            guard let self else { return }
+            self.settingsPanel.setContentSize(size)
+            if self.settingsPanel.isVisible, let button = self.statusItem.button {
+                self.positionSettingsPanel(relativeTo: button)
+            }
         }
     }
 
@@ -165,6 +169,7 @@ final class MenuBarController: NSObject {
         _ = settingsViewController.view
         settingsViewController.reloadFromPreferences()
         settingsViewController.updateStatusDisplay(currentStatus, isFilterActive: isFilterActive)
+        settingsViewController.sizeToFitContent()
 
         positionSettingsPanel(relativeTo: button)
         settingsPanel.orderFront(nil)

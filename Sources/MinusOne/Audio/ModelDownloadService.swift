@@ -4,7 +4,6 @@ import Foundation
 /// Downloads Demucs CoreML packages from Hugging Face into Application Support and compiles them.
 enum ModelDownloadService {
     enum DownloadError: Error, LocalizedError {
-        case variantUnavailable(SeparationModelVariant)
         case badResponse(URL, Int)
         case invalidTree
         case emptyPackage
@@ -12,8 +11,6 @@ enum ModelDownloadService {
 
         var errorDescription: String? {
             switch self {
-            case .variantUnavailable(let variant):
-                return "\(variant.displayName) is not available to download yet."
             case .badResponse(let url, let code):
                 return "Download failed (\(code)) for \(url.lastPathComponent)."
             case .invalidTree:
@@ -68,11 +65,8 @@ enum ModelDownloadService {
         _ variant: SeparationModelVariant,
         progress: @escaping @MainActor (Double, String) -> Void
     ) async throws {
-        guard variant.hasCoreMLRelease,
-              let repoID = variant.huggingFaceRepoID,
-              let sourcePackage = variant.huggingFaceSourcePackageName else {
-            throw DownloadError.variantUnavailable(variant)
-        }
+        let repoID = variant.huggingFaceRepoID
+        let sourcePackage = variant.huggingFaceSourcePackageName
 
         if SeparationModelFactory.isAvailable(variant) {
             await MainActor.run { progress(1, "Already installed") }

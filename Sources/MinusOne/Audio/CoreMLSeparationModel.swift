@@ -22,7 +22,7 @@ final class CoreMLSeparationModel: AudioSeparationModel {
 
     init(variant: SeparationModelVariant, captureSampleRate: Double = 48_000) throws {
         self.variant = variant
-        self.name = "Demucs \(variant.displayName)"
+        self.name = variant.displayName
         let needsResample = abs(captureSampleRate - modelSampleRate) >= 1
 
         let modelURL = try Self.resolveModelURL(for: variant)
@@ -301,8 +301,6 @@ final class CoreMLSeparationModel: AudioSeparationModel {
         switch outputStemCount {
         case 4:
             return [1, 2, 3]
-        case 6:
-            return variant == .sixStem ? [0, 1, 2, 4, 5] : [1, 2, 3, 4, 5]
         default:
             return variant.instrumentalStemIndices
         }

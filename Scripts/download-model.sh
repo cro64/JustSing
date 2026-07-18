@@ -1,28 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Demucs v4 variants: htdemucs (Balanced), htdemucs_ft (Fine-Tuned), htdemucs_6s (Six-Stem)
-VARIANT="${1:-htdemucs}"
-
-case "${VARIANT}" in
-  htdemucs)
-    SOURCE_PACKAGE="HTDemucs_CoreML_FP16.mlpackage"
-    REPO_ID="dexxdean/htdemucs-coreml"
-    LEGACY_PACKAGE="HTDemucs_CoreML.mlpackage"
-    LEGACY_COMPILED="HTDemucs_CoreML.mlmodelc"
-    ;;
-  htdemucs_ft|htdemucs_6s)
-    echo "CoreML package for ${VARIANT} is not published yet."
-    echo "Only htdemucs (Balanced) can be installed today."
-    echo "Fine-Tuned and Six-Stem will use ONNX or future CoreML builds."
-    exit 1
-    ;;
-  *)
-    echo "Unknown variant: ${VARIANT}"
-    echo "Usage: $0 [htdemucs|htdemucs_ft|htdemucs_6s]"
-    exit 1
-    ;;
-esac
+# Demucs v4 Balanced (htdemucs) CoreML package
+VARIANT="htdemucs"
+SOURCE_PACKAGE="HTDemucs_CoreML_FP16.mlpackage"
+REPO_ID="dexxdean/htdemucs-coreml"
+LEGACY_PACKAGE="HTDemucs_CoreML.mlpackage"
+LEGACY_COMPILED="HTDemucs_CoreML.mlmodelc"
 
 MODELS_DIR="${HOME}/Library/Application Support/MinusOne/Models"
 PACKAGE="${MODELS_DIR}/${VARIANT}.mlpackage"
@@ -31,7 +15,7 @@ LEGACY_PACKAGE_PATH="${MODELS_DIR}/${LEGACY_PACKAGE}"
 LEGACY_COMPILED_PATH="${MODELS_DIR}/${LEGACY_COMPILED}"
 
 if [[ -d "${COMPILED}" ]] || [[ -d "${LEGACY_COMPILED_PATH}" ]]; then
-    echo "Balanced model already installed."
+    echo "Neural model already installed."
     exit 0
 fi
 
@@ -106,4 +90,4 @@ print("Compiled model saved to \(compiledURL.path)")
 SWIFT
 fi
 
-echo "Done. Select Neural → Balanced in MinusOne settings."
+echo "Done. Select Neural in MinusOne settings."

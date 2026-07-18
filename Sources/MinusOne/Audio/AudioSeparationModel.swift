@@ -36,7 +36,6 @@ extension AudioSeparationModel {
 
 enum SeparationModelError: Error, LocalizedError {
     case modelNotFound(String)
-    case variantUnavailable(SeparationModelVariant)
     case compileFailed(String)
     case inferenceFailed(String)
     case unsupportedSampleRate(Double)
@@ -45,11 +44,6 @@ enum SeparationModelError: Error, LocalizedError {
         switch self {
         case .modelNotFound(let path):
             return "Separation model not found at \(path). Run Scripts/download-model.sh."
-        case .variantUnavailable(let variant):
-            if variant.hasCoreMLRelease {
-                return "\(variant.displayName) is not installed. Run Scripts/download-model.sh \(variant.rawValue)."
-            }
-            return "\(variant.displayName) has no CoreML build yet — use Balanced, or watch for a future update."
         case .compileFailed(let message):
             return "Failed to compile separation model: \(message)"
         case .inferenceFailed(let message):
@@ -77,9 +71,6 @@ enum SeparationModelFactory {
 
     static func loadModel(variant: SeparationModelVariant, captureSampleRate: Double = 48_000) throws -> AudioSeparationModel {
         guard isAvailable(variant) else {
-            if !variant.hasCoreMLRelease {
-                throw SeparationModelError.variantUnavailable(variant)
-            }
             throw SeparationModelError.modelNotFound(
                 modelSearchPaths(for: variant).map(\.path).joined(separator: ", ")
             )
