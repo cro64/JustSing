@@ -25,4 +25,14 @@ cp "$ROOT_DIR/Resources/Assets.car" "$RESOURCES_DIR/Assets.car"
 cp "$ROOT_DIR/.build/$CONFIGURATION/MinusOne" "$MACOS_DIR/MinusOne"
 chmod +x "$MACOS_DIR/MinusOne"
 
+# Seal the bundle. Prefer a local signing identity; fall back to ad-hoc.
+# Note: GitHub downloads still need Developer ID + notarization for Gatekeeper to trust them.
+if SIGN_ID="$(security find-identity -v -p codesigning 2>/dev/null | awk -F'"' '/Apple Development|Developer ID Application/{print $2; exit}')" \
+  && [[ -n "${SIGN_ID}" ]]; then
+  codesign --force --deep --options runtime --sign "$SIGN_ID" "$APP_DIR"
+else
+  codesign --force --deep --sign - "$APP_DIR"
+fi
+
 echo "Built $APP_DIR"
+codesign -dv --verbose=2 "$APP_DIR" 2>&1 | awk '/Authority|Signature|TeamIdentifier|flags=/{print}'

@@ -7,7 +7,7 @@ final class RollingStereoBuffer {
     private let mask: Int
     private let left: UnsafeMutablePointer<Float>
     private let right: UnsafeMutablePointer<Float>
-    private let totalWritten: UnsafeMutablePointer<js_atomic_uint64_t>
+    private let totalWritten: UnsafeMutablePointer<mo_atomic_uint64_t>
 
     init(capacitySamples: Int) {
         let powerOfTwo = Self.nextPowerOfTwo(max(capacitySamples, 2))
@@ -17,8 +17,8 @@ final class RollingStereoBuffer {
         right = UnsafeMutablePointer<Float>.allocate(capacity: powerOfTwo)
         left.initialize(repeating: 0, count: powerOfTwo)
         right.initialize(repeating: 0, count: powerOfTwo)
-        totalWritten = UnsafeMutablePointer<js_atomic_uint64_t>.allocate(capacity: 1)
-        js_atomic_uint64_init(totalWritten, 0)
+        totalWritten = UnsafeMutablePointer<mo_atomic_uint64_t>.allocate(capacity: 1)
+        mo_atomic_uint64_init(totalWritten, 0)
     }
 
     deinit {
@@ -30,22 +30,22 @@ final class RollingStereoBuffer {
     }
 
     func reset() {
-        js_atomic_uint64_store(totalWritten, 0)
+        mo_atomic_uint64_store(totalWritten, 0)
     }
 
     var writePosition: UInt64 {
-        js_atomic_uint64_load(totalWritten)
+        mo_atomic_uint64_load(totalWritten)
     }
 
     func write(left inputLeft: UnsafePointer<Float>, right inputRight: UnsafePointer<Float>, frameCount: Int) {
-        var position = js_atomic_uint64_load(totalWritten)
+        var position = mo_atomic_uint64_load(totalWritten)
         for frame in 0..<frameCount {
             let slot = Int(position) & mask
             left[slot] = inputLeft[frame]
             right[slot] = inputRight[frame]
             position += 1
         }
-        js_atomic_uint64_store(totalWritten, position)
+        mo_atomic_uint64_store(totalWritten, position)
     }
 
     func read(

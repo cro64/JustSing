@@ -3,10 +3,6 @@
 build/
 *.dSYM/
 
-# Compiled app icon (regenerate with Scripts/package-icon.sh)
-Resources/Assets.car
-Resources/MinusOne.icns
-
 # macOS
 .DS_Store
 

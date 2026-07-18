@@ -53,10 +53,6 @@ final class AudioEngine {
         SeparationModelVariant.allCases.contains { SeparationModelFactory.isAvailable($0) }
     }
 
-    var loadedSeparationModelVariant: SeparationModelVariant? {
-        separationModel?.variant
-    }
-
     var isVocalReductionActive: Bool {
         isReductionEnabled && preferences.processingMode.supportsVocalReduction
     }
@@ -788,12 +784,6 @@ final class AudioEngine {
         preferences.makeupGainDecibels = value
         dsp.makeupGainDecibels.store(value)
         neuralPipeline?.mixDSP.makeupGainDecibels.store(value)
-    }
-
-    func setRampDurationMilliseconds(_ value: Float) {
-        preferences.rampDurationMilliseconds = value
-        dsp.rampDurationMilliseconds.store(value)
-        neuralPipeline?.mixDSP.rampDurationMilliseconds.store(value)
     }
 
     func setCaptureScope(_ scope: CaptureScope) {

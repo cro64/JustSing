@@ -57,10 +57,29 @@ Capture uses a system-level audio tap on macOS 14.2+ (supports per-app selection
 
 1. Grab the latest `MinusOne-*-macos.dmg` from [Releases](https://github.com/cro64/MinusOne/releases)
 2. Open the disk image and drag **MinusOne** onto **Applications**
-3. Open it from Applications (first launch: right-click → **Open** if macOS blocks it)
+3. Open it from Applications
 4. On the welcome screen, download the Neural model (~200 MB) or skip and use Center Cut
 
 Left-click the waveform icon for settings; right-click any time to toggle vocal reduction.
+
+#### If macOS says the app is damaged or can’t be opened
+
+MinusOne isn’t notarized yet (that needs a paid Apple Developer ID), so Gatekeeper may block the download. Same workaround many open-source Mac apps document:
+
+**Option A — Privacy & Security**
+
+1. Try opening the app once (the warning is expected)
+2. Open **System Settings → Privacy & Security**
+3. Scroll to the message about MinusOne and click **Open Anyway**
+
+**Option B — Terminal (one time)**
+
+```bash
+xattr -cr /Applications/MinusOne.app
+open /Applications/MinusOne.app
+```
+
+That only clears the download quarantine flag. It does not weaken system security permanently.
 
 ### Build from source
 
@@ -153,10 +172,10 @@ Either way, nothing is saved or recorded.
 ## Development
 
 ```bash
-Scripts/package-icon.sh       # compile Resources/MinusOne.icon → Assets.car (Xcode 26.6+)
 Scripts/build-app.sh          # debug build
 Scripts/build-app.sh release
 Scripts/package-dmg.sh        # → build/MinusOne-v*-macos.dmg (drag to Applications)
+Scripts/package-icon.sh       # only when editing Resources/MinusOne.icon (needs Xcode 26.6+)
 swift build --disable-sandbox # SPM only
 ```
 
@@ -164,7 +183,9 @@ swift build --disable-sandbox # SPM only
 Sources/MinusOne/           App and UI
 Sources/MinusOne/Audio/     Engine, DSP, neural pipeline
 Sources/CAtomics/           Realtime primitives
-Resources/MinusOne.icon     App icon (Icon Composer)
+Resources/MinusOne.icon     App icon source (Icon Composer)
+Resources/Assets.car        Compiled icon catalog (checked in)
+Resources/MinusOne.icns     Finder icon fallback (checked in)
 Resources/MinusOneIcon.svg  Logo vector (active waveform)
 Resources/MinusOneDropDown.png  Settings panel preview
 Resources/readme/           Menu-bar icon states for README

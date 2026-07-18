@@ -9,12 +9,6 @@ enum SeparationModelVariant: String, CaseIterable, Codable, Identifiable {
 
     var displayName: String { "Demucs" }
 
-    var detailText: String {
-        "Demucs v4 (htdemucs), 4 stems — ~8–9 dB vocals SDR"
-    }
-
-    var stemCount: Int { 4 }
-
     /// Hugging Face repo that hosts the CoreML package.
     var huggingFaceRepoID: String { "dexxdean/htdemucs-coreml" }
 
@@ -44,8 +38,6 @@ enum SeparationModelVariant: String, CaseIterable, Codable, Identifiable {
     var compiledFileName: String {
         "\(rawValue).mlmodelc"
     }
-
-    var demucsIdentifier: String { rawValue }
 
     /// Legacy balanced install from early MinusOne builds.
     static let legacyBalancedPackage = "HTDemucs_CoreML.mlpackage"

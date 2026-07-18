@@ -19,21 +19,6 @@ protocol AudioSeparationModel: AnyObject {
     ) throws -> SeparationResult
 }
 
-extension AudioSeparationModel {
-    func separate(left: [Float], right: [Float], sampleRate: Double) throws -> SeparationResult {
-        try left.withUnsafeBufferPointer { leftPtr in
-            try right.withUnsafeBufferPointer { rightPtr in
-                try separate(
-                    left: leftPtr.baseAddress!,
-                    right: rightPtr.baseAddress!,
-                    frameCount: left.count,
-                    sampleRate: sampleRate
-                )
-            }
-        }
-    }
-}
-
 enum SeparationModelError: Error, LocalizedError {
     case modelNotFound(String)
     case compileFailed(String)
@@ -63,10 +48,6 @@ enum SeparationModelFactory {
 
     static func isAvailable(_ variant: SeparationModelVariant) -> Bool {
         !modelSearchPaths(for: variant).isEmpty
-    }
-
-    static var isAnyAvailable: Bool {
-        SeparationModelVariant.allCases.contains { isAvailable($0) }
     }
 
     static func loadModel(variant: SeparationModelVariant, captureSampleRate: Double = 48_000) throws -> AudioSeparationModel {

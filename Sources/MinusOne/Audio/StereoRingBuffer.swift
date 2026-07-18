@@ -6,8 +6,8 @@ final class StereoRingBuffer {
     private let mask: Int
     private let left: UnsafeMutablePointer<Float>
     private let right: UnsafeMutablePointer<Float>
-    private let writeIndex: UnsafeMutablePointer<js_atomic_uint64_t>
-    private let readIndex: UnsafeMutablePointer<js_atomic_uint64_t>
+    private let writeIndex: UnsafeMutablePointer<mo_atomic_uint64_t>
+    private let readIndex: UnsafeMutablePointer<mo_atomic_uint64_t>
 
     init(capacityPowerOfTwo: Int) {
         precondition(capacityPowerOfTwo > 0 && capacityPowerOfTwo & (capacityPowerOfTwo - 1) == 0)
@@ -17,10 +17,10 @@ final class StereoRingBuffer {
         right = UnsafeMutablePointer<Float>.allocate(capacity: capacityPowerOfTwo)
         left.initialize(repeating: 0, count: capacityPowerOfTwo)
         right.initialize(repeating: 0, count: capacityPowerOfTwo)
-        writeIndex = UnsafeMutablePointer<js_atomic_uint64_t>.allocate(capacity: 1)
-        readIndex = UnsafeMutablePointer<js_atomic_uint64_t>.allocate(capacity: 1)
-        js_atomic_uint64_init(writeIndex, 0)
-        js_atomic_uint64_init(readIndex, 0)
+        writeIndex = UnsafeMutablePointer<mo_atomic_uint64_t>.allocate(capacity: 1)
+        readIndex = UnsafeMutablePointer<mo_atomic_uint64_t>.allocate(capacity: 1)
+        mo_atomic_uint64_init(writeIndex, 0)
+        mo_atomic_uint64_init(readIndex, 0)
     }
 
     deinit {
@@ -33,8 +33,8 @@ final class StereoRingBuffer {
     }
 
     func reset() {
-        js_atomic_uint64_store(writeIndex, 0)
-        js_atomic_uint64_store(readIndex, 0)
+        mo_atomic_uint64_store(writeIndex, 0)
+        mo_atomic_uint64_store(readIndex, 0)
     }
 
     func write(
@@ -42,13 +42,13 @@ final class StereoRingBuffer {
         right inputRight: UnsafePointer<Float>,
         frameCount: Int
     ) {
-        var write = js_atomic_uint64_load(writeIndex)
-        var read = js_atomic_uint64_load(readIndex)
+        var write = mo_atomic_uint64_load(writeIndex)
+        var read = mo_atomic_uint64_load(readIndex)
 
         for frame in 0..<frameCount {
             if Int(write - read) >= capacity {
                 read += 1
-                js_atomic_uint64_store(readIndex, read)
+                mo_atomic_uint64_store(readIndex, read)
             }
 
             let slot = Int(write) & mask
@@ -57,7 +57,7 @@ final class StereoRingBuffer {
             write += 1
         }
 
-        js_atomic_uint64_store(writeIndex, write)
+        mo_atomic_uint64_store(writeIndex, write)
     }
 
     func read(
@@ -65,8 +65,8 @@ final class StereoRingBuffer {
         right outputRight: UnsafeMutablePointer<Float>,
         frameCount: Int
     ) {
-        let write = js_atomic_uint64_load(writeIndex)
-        var read = js_atomic_uint64_load(readIndex)
+        let write = mo_atomic_uint64_load(writeIndex)
+        var read = mo_atomic_uint64_load(readIndex)
 
         for frame in 0..<frameCount {
             if read < write {
@@ -80,6 +80,6 @@ final class StereoRingBuffer {
             }
         }
 
-        js_atomic_uint64_store(readIndex, read)
+        mo_atomic_uint64_store(readIndex, read)
     }
 }

@@ -25,10 +25,10 @@ final class NeuralSeparationPipeline {
     private let inferenceQueue = DispatchQueue(label: "com.minusone.neural-inference", qos: .utility)
     private var inferenceWorkItem: DispatchWorkItem?
     private var isInferenceRunning = false
-    private let nextInferenceEnd: UnsafeMutablePointer<js_atomic_uint64_t>
-    private let pipelineEpoch: UnsafeMutablePointer<js_atomic_uint64_t>
-    private let outputPrimedEpoch: UnsafeMutablePointer<js_atomic_uint64_t>
-    private let latestOutputEnd: UnsafeMutablePointer<js_atomic_uint64_t>
+    private let nextInferenceEnd: UnsafeMutablePointer<mo_atomic_uint64_t>
+    private let pipelineEpoch: UnsafeMutablePointer<mo_atomic_uint64_t>
+    private let outputPrimedEpoch: UnsafeMutablePointer<mo_atomic_uint64_t>
+    private let latestOutputEnd: UnsafeMutablePointer<mo_atomic_uint64_t>
     private var inferenceEpoch: UInt64 = 0
     private var hasPrimedOutput = false
     private var pipelineState: NeuralPipelineState = .idle
@@ -68,14 +68,14 @@ final class NeuralSeparationPipeline {
         discontinuityDetector = AudioDiscontinuityDetector(sampleRate: sampleRate)
         mixDSP = NeuralMixDSP(makeupGainDecibels: makeupGainDecibels, rampDurationMilliseconds: rampDurationMilliseconds)
 
-        nextInferenceEnd = UnsafeMutablePointer<js_atomic_uint64_t>.allocate(capacity: 1)
-        pipelineEpoch = UnsafeMutablePointer<js_atomic_uint64_t>.allocate(capacity: 1)
-        outputPrimedEpoch = UnsafeMutablePointer<js_atomic_uint64_t>.allocate(capacity: 1)
-        latestOutputEnd = UnsafeMutablePointer<js_atomic_uint64_t>.allocate(capacity: 1)
-        js_atomic_uint64_init(nextInferenceEnd, 0)
-        js_atomic_uint64_init(pipelineEpoch, 0)
-        js_atomic_uint64_init(outputPrimedEpoch, 0)
-        js_atomic_uint64_init(latestOutputEnd, 0)
+        nextInferenceEnd = UnsafeMutablePointer<mo_atomic_uint64_t>.allocate(capacity: 1)
+        pipelineEpoch = UnsafeMutablePointer<mo_atomic_uint64_t>.allocate(capacity: 1)
+        outputPrimedEpoch = UnsafeMutablePointer<mo_atomic_uint64_t>.allocate(capacity: 1)
+        latestOutputEnd = UnsafeMutablePointer<mo_atomic_uint64_t>.allocate(capacity: 1)
+        mo_atomic_uint64_init(nextInferenceEnd, 0)
+        mo_atomic_uint64_init(pipelineEpoch, 0)
+        mo_atomic_uint64_init(outputPrimedEpoch, 0)
+        mo_atomic_uint64_init(latestOutputEnd, 0)
 
         scratchInstrumentalLeft = UnsafeMutablePointer<Float>.allocate(capacity: maxFramesPerCallback)
         scratchInstrumentalRight = UnsafeMutablePointer<Float>.allocate(capacity: maxFramesPerCallback)
@@ -147,11 +147,11 @@ final class NeuralSeparationPipeline {
         mixDSP.reset()
         discontinuityDetector.reset()
         hasPrimedOutput = false
-        js_atomic_uint64_store(outputPrimedEpoch, 0)
-        js_atomic_uint64_store(latestOutputEnd, 0)
-        js_atomic_uint64_store(nextInferenceEnd, UInt64(windowSamples))
-        js_atomic_uint64_store(pipelineEpoch, js_atomic_uint64_load(pipelineEpoch) + 1)
-        inferenceEpoch = js_atomic_uint64_load(pipelineEpoch)
+        mo_atomic_uint64_store(outputPrimedEpoch, 0)
+        mo_atomic_uint64_store(latestOutputEnd, 0)
+        mo_atomic_uint64_store(nextInferenceEnd, UInt64(windowSamples))
+        mo_atomic_uint64_store(pipelineEpoch, mo_atomic_uint64_load(pipelineEpoch) + 1)
+        inferenceEpoch = mo_atomic_uint64_load(pipelineEpoch)
     }
 
     func process(
@@ -197,8 +197,8 @@ final class NeuralSeparationPipeline {
         let playbackLead = UInt64(frameCount) + UInt64(delaySamples)
         let playbackStart = writePosition >= playbackLead ? writePosition - playbackLead : 0
         let playbackEnd = playbackStart + UInt64(frameCount)
-        let outputIsPrimed = js_atomic_uint64_load(outputPrimedEpoch) == js_atomic_uint64_load(pipelineEpoch)
-        let outputCoversPlayback = playbackEnd <= js_atomic_uint64_load(latestOutputEnd)
+        let outputIsPrimed = mo_atomic_uint64_load(outputPrimedEpoch) == mo_atomic_uint64_load(pipelineEpoch)
+        let outputCoversPlayback = playbackEnd <= mo_atomic_uint64_load(latestOutputEnd)
         let canMix = reductionActive
             && writePosition >= playbackLead + UInt64(windowSamples)
             && outputIsPrimed
@@ -238,17 +238,17 @@ final class NeuralSeparationPipeline {
         outputBuffer.clearSamples()
         delayLine.reset()
         hasPrimedOutput = false
-        js_atomic_uint64_store(outputPrimedEpoch, 0)
-        js_atomic_uint64_store(latestOutputEnd, 0)
-        js_atomic_uint64_store(nextInferenceEnd, writePosition + UInt64(windowSamples))
-        js_atomic_uint64_store(pipelineEpoch, js_atomic_uint64_load(pipelineEpoch) + 1)
+        mo_atomic_uint64_store(outputPrimedEpoch, 0)
+        mo_atomic_uint64_store(latestOutputEnd, 0)
+        mo_atomic_uint64_store(nextInferenceEnd, writePosition + UInt64(windowSamples))
+        mo_atomic_uint64_store(pipelineEpoch, mo_atomic_uint64_load(pipelineEpoch) + 1)
         flushGraceUntilPosition = writePosition + UInt64(sampleRate * 3)
         setState(.warmingUp)
     }
 
     private func tryMarkReady(writePosition: UInt64) {
         guard case .warmingUp = pipelineState else { return }
-        let outputIsPrimed = js_atomic_uint64_load(outputPrimedEpoch) == js_atomic_uint64_load(pipelineEpoch)
+        let outputIsPrimed = mo_atomic_uint64_load(outputPrimedEpoch) == mo_atomic_uint64_load(pipelineEpoch)
         let enoughBuffered = writePosition >= UInt64(delaySamples + windowSamples)
         if outputIsPrimed, enoughBuffered {
             setState(.ready)
@@ -260,9 +260,9 @@ final class NeuralSeparationPipeline {
     }
 
     private func markOutputWritten(through endPosition: UInt64) {
-        let current = js_atomic_uint64_load(latestOutputEnd)
+        let current = mo_atomic_uint64_load(latestOutputEnd)
         if endPosition > current {
-            js_atomic_uint64_store(latestOutputEnd, endPosition)
+            mo_atomic_uint64_store(latestOutputEnd, endPosition)
         }
     }
 
@@ -293,7 +293,7 @@ final class NeuralSeparationPipeline {
     }
 
     private func syncInferenceEpochIfNeeded() {
-        let epoch = js_atomic_uint64_load(pipelineEpoch)
+        let epoch = mo_atomic_uint64_load(pipelineEpoch)
         guard epoch != inferenceEpoch else { return }
         inferenceEpoch = epoch
         hasPrimedOutput = false
@@ -304,7 +304,7 @@ final class NeuralSeparationPipeline {
             syncInferenceEpochIfNeeded()
 
             let writePosition = inputBuffer.writePosition
-            let inferenceEnd = js_atomic_uint64_load(nextInferenceEnd)
+            let inferenceEnd = mo_atomic_uint64_load(nextInferenceEnd)
 
             if shouldThrottleInference(writePosition: writePosition) {
                 Thread.sleep(forTimeInterval: 0.05)
@@ -325,7 +325,7 @@ final class NeuralSeparationPipeline {
                 intoRight: windowRight
             )
 
-            let epochAtStart = js_atomic_uint64_load(pipelineEpoch)
+            let epochAtStart = mo_atomic_uint64_load(pipelineEpoch)
 
             do {
                 let result = try model.separate(
@@ -335,7 +335,7 @@ final class NeuralSeparationPipeline {
                     sampleRate: sampleRate
                 )
 
-                guard epochAtStart == js_atomic_uint64_load(pipelineEpoch) else { continue }
+                guard epochAtStart == mo_atomic_uint64_load(pipelineEpoch) else { continue }
 
                 let instrumentalLeft = result.instrumentalLeft
                 let instrumentalRight = result.instrumentalRight
@@ -354,7 +354,7 @@ final class NeuralSeparationPipeline {
                         }
                     }
                     hasPrimedOutput = true
-                    js_atomic_uint64_store(outputPrimedEpoch, js_atomic_uint64_load(pipelineEpoch))
+                    mo_atomic_uint64_store(outputPrimedEpoch, mo_atomic_uint64_load(pipelineEpoch))
                     markOutputWritten(through: startPosition + UInt64(windowSamples))
                     tryMarkReady(writePosition: inputBuffer.writePosition)
                 } else {
@@ -373,7 +373,7 @@ final class NeuralSeparationPipeline {
                     markOutputWritten(through: hopStartPosition + UInt64(hopSamples))
                 }
 
-                js_atomic_uint64_store(nextInferenceEnd, inferenceEnd + UInt64(hopSamples))
+                mo_atomic_uint64_store(nextInferenceEnd, inferenceEnd + UInt64(hopSamples))
             } catch {
                 AppLogger.shared.error("Neural inference failed: \(error.localizedDescription)")
                 setState(.error(error.localizedDescription))
@@ -387,7 +387,7 @@ final class NeuralSeparationPipeline {
     private func shouldThrottleInference(writePosition: UInt64) -> Bool {
         guard hasPrimedOutput, mixDSP.targetIntensity.load() <= 0.001 else { return false }
 
-        let frontier = js_atomic_uint64_load(latestOutputEnd)
+        let frontier = mo_atomic_uint64_load(latestOutputEnd)
         guard writePosition > UInt64(delaySamples) else { return false }
 
         let playbackHead = writePosition - UInt64(delaySamples)
