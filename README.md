@@ -55,9 +55,9 @@ Capture uses a system-level audio tap on macOS 14.2+ (supports per-app selection
 
 ### Download (recommended)
 
-1. Grab the latest `MinusOne-*-macos.zip` from [Releases](https://github.com/cro64/MinusOne/releases)
-2. Unzip and move `MinusOne.app` into **Applications**
-3. Open it (first launch: right-click → **Open** if macOS blocks it)
+1. Grab the latest `MinusOne-*-macos.dmg` from [Releases](https://github.com/cro64/MinusOne/releases)
+2. Open the disk image and drag **MinusOne** onto **Applications**
+3. Open it from Applications (first launch: right-click → **Open** if macOS blocks it)
 4. On the welcome screen, download the Neural model (~200 MB) or skip and use Center Cut
 
 Left-click the waveform icon for settings; right-click any time to toggle vocal reduction.
@@ -156,6 +156,7 @@ Either way, nothing is saved or recorded.
 Scripts/package-icon.sh       # compile Resources/MinusOne.icon → Assets.car (Xcode 26.6+)
 Scripts/build-app.sh          # debug build
 Scripts/build-app.sh release
+Scripts/package-dmg.sh        # → build/MinusOne-v*-macos.dmg (drag to Applications)
 swift build --disable-sandbox # SPM only
 ```
 
@@ -169,6 +170,7 @@ Resources/MinusOneDropDown.png  Settings panel preview
 Resources/readme/           Menu-bar icon states for README
 Scripts/build-app.sh
 Scripts/package-icon.sh
+Scripts/package-dmg.sh
 Scripts/download-model.sh
 ```
 
