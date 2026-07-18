@@ -1,35 +1,82 @@
+<p align="center">
+  <img src="Resources/MinusOneIcon.svg" width="96" alt="MinusOne" />
+</p>
+
 # MinusOne
 
-macOS menu bar app for live vocal reduction in system audio. Runs in the background, processes in real time, and does not record or store anything.
+**A macOS menu bar app that removes vocals from whatever is playing on your Mac, live.**
+
+Runs quietly in the background. Nothing is ever recorded or saved. It just changes what you hear, in real time.
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+![Platform](https://img.shields.io/badge/platform-macOS%2014%2B-lightgrey)
+
+Turn any song into an instant instrumental for karaoke or practice, right from your menu bar. No editing software, no waiting for a file to process and download.
+
+---
+
+## Preview
+
+<p align="center">
+  <img src="Resources/MinusOneDropDown.png" width="280" alt="MinusOne settings panel, Neural mode with Custom app capture" />
+</p>
+
+## Table of Contents
+
+- [Preview](#preview)
+- [Modes](#modes)
+- [Quick Start](#quick-start)
+- [Requirements](#requirements)
+- [Controls](#controls)
+- [Neural model](#neural-model)
+- [How audio capture works](#how-audio-capture-works)
+- [Development](#development)
+- [Limits](#limits)
+- [License](#license)
 
 ## Modes
 
-| Mode | Latency | CPU | Best for |
-|------|---------|-----|----------|
-| **Direct** | Zero | Minimal | Unmodified listening, routing check |
-| **Center Cut** | Near-zero | Minimal | Karaoke — instant `L − R` center vocal cut |
-| **Neural** | ~10 s | Low (~single-digit % on Apple Silicon) | Best vocal removal — Demucs v4 separation |
+Three modes, trading off speed for quality:
 
-**Neural** uses overlapping ~10-second windows. Playback is delayed by one window so the instrumental stream stays aligned with the dry path. The neural pipeline starts only when you enable reduction (not on app launch).
+| Mode | Latency | CPU load | How it works | Best for |
+|---|---|---|---|---|
+| **Direct** | Zero | Negligible | Passthrough, no processing | Verifying capture/routing is set up correctly |
+| **Center Cut** | Near-zero (~50 ms ramp on toggle) | Very light | Phase-cancels the mid (L+R) channel, which usually carries the lead vocal | Karaoke, quick on-the-fly removal |
+| **Neural** | ~10 s (one processing window) | Light (single-digit % on Apple Silicon) | Runs system audio through Demucs v4 (4-stem) in ~10 s overlapping windows | Cleanest vocal removal, non-real-time-critical listening |
 
-**Center Cut** and **Neural** ramp intensity over ~50 ms when toggled. **Direct** passes audio through unchanged.
+**Neural** buffers audio into overlapping windows before running inference, so playback trails live audio by roughly one window's length. It only starts processing once you turn it on, not on app launch, and re-warms after track changes.
 
-Capture uses **Process Tap** on macOS 14.2+ (recommended), with **BlackHole** fallback on older macOS or if the tap fails. Process Tap can target **all apps** or **selected apps** only.
+**Center Cut** relies on the vocal being panned dead-center, so it also suppresses other center-panned elements (kick, bass, lead guitar) and does nothing useful on mono sources.
+
+**Direct** passes audio through unmodified. Useful as a baseline to confirm the pipeline is wired up correctly.
+
+Capture uses a system-level audio tap on macOS 14.2+ (supports per-app selection), or [BlackHole](https://existential.audio/blackhole/) as a fallback. See [How audio capture works](#how-audio-capture-works).
 
 ## Quick Start
 
-```sh
+### Download (recommended)
+
+1. Grab the latest `MinusOne-*-macos.zip` from [Releases](https://github.com/cro64/MinusOne/releases)
+2. Unzip and move `MinusOne.app` into **Applications**
+3. Open it (first launch: right-click → **Open** if macOS blocks it)
+4. On the welcome screen, download the Neural model (~200 MB) or skip and use Center Cut
+
+Left-click the waveform icon for settings; right-click any time to toggle vocal reduction.
+
+### Build from source
+
+```bash
 Scripts/build-app.sh release          # → build/MinusOne.app
-Scripts/download-model.sh             # Neural only, ~200 MB one-time
+Scripts/download-model.sh             # optional if you skip the welcome download
 ```
 
-Open `build/MinusOne.app`. On first launch, download the Neural model (or skip and use Center Cut). Left-click the menu bar waveform icon for settings, then choose **Neural** after the model is installed. Right-click the icon to toggle reduction.
+Then open `build/MinusOne.app` (or copy it to Applications).
 
 ## Requirements
 
-- macOS 14+ (14.2+ recommended for Process Tap)
-- [BlackHole 2ch](https://existential.audio/blackhole/) if Process Tap is unavailable
-- Neural: Demucs model download (not bundled)
+- macOS 14 or newer (14.2+ recommended)
+- [BlackHole 2ch](https://existential.audio/blackhole/), only if Process Tap is unavailable
+- Neural: one-time Demucs model download (not bundled)
 
 | Capture | Permission |
 |---------|------------|
@@ -38,84 +85,86 @@ Open `build/MinusOne.app`. On first launch, download the Neural model (or skip a
 
 ## Controls
 
-| Action | Result |
-|--------|--------|
-| Left-click icon | Settings |
-| Right-click icon | Toggle vocal reduction |
-| Capture → Custom → Apps menu | Pick which apps to process |
-| ⌘⌥M | Toggle vocal reduction |
+| Action | What it does |
+|--------|----------------|
+| Left-click the icon | Open settings |
+| Right-click the icon | Turn vocal reduction on or off |
+| Settings → Scope → Custom → Apps | Choose which apps get processed |
+| ⌘⌥M | Turn vocal reduction on or off |
 
 ### Settings
 
-Compact menu-style panel (opens to the right of the icon):
+A compact panel opens next to the icon:
 
-| Control | Description |
-|---------|-------------|
+| Setting | What it does |
+|---------|----------------|
 | **Mode** | Direct · Center Cut · Neural |
-| **Intensity** | Vocal removal amount when on (0–100%); value shows while dragging |
-| **Gain** | Loudness compensation (0–12 dB, default 4.5); value shows while dragging |
-| **Capture** | All Apps · Custom (Process Tap only) |
+| **Intensity** | How much vocal removal to apply (0–100%) |
+| **Gain** | Loudness compensation after removal (0–12 dB, default 4.5) |
+| **Scope** | All Apps, or **Custom** (picked apps only) |
 
-Intensity and gain apply to Center Cut and Neural only.
+Intensity and Gain apply to Center Cut and Neural only. Neural is grayed out until the model is installed.
 
-**Custom** only processes checked apps — FaceTime, Discord, and other unchecked apps play normally. Requires Process Tap (macOS 14.2+).
+**Custom** only processes checked apps. FaceTime, Discord, and other unchecked apps play normally. Requires Process Tap (macOS 14.2+).
 
-### Status header
+### Status
 
-| Title | Notes |
-|-------|-------|
-| **Off** | Reduction disabled |
-| **On** | Reduction active |
-| **Warming up** | Neural model loading |
-| **Mono input** | Center cut unavailable |
-| **Permission needed** | Open Settings to allow |
-| **Error** | Info button shows the error message |
+| What it says | What it means |
+|--------------|-----------------|
+| **Off** | Vocal reduction is off |
+| **On** | Reduction is active |
+| **Warming up** | Neural model is loading |
+| **Mono input** | Center Cut won't work with this audio |
+| **Permission needed** | Open System Settings to grant access |
+| **Error** | Tap the info icon for details |
 
 ### Icon
 
-Official logo is the **active** waveform (center as a dot) — see `Resources/MinusOne.icon`. Menu bar states:
+The waveform in the menu bar changes with status:
 
-| Appearance | Meaning |
-|------------|---------|
+| Look | Meaning |
+|------|---------|
 | Full center bar (menu-bar tint) | Idle / reduction off |
 | Center dot (accent) | Reduction on |
 | Cyan | Neural warming up |
-| Yellow | Mono input — Center Cut unavailable |
+| Yellow | Mono input, Center Cut unavailable |
 | Orange | Permission required |
 | Red | Error |
 
 ## Neural model
 
-Neural mode uses **Demucs v4** (`htdemucs`) — Meta’s open-source 4-stem music separation model, converted to CoreML for Apple Silicon.
+Neural mode uses **Demucs v4** (`htdemucs`), Meta's open-source 4-stem music separation model (vocals, drums, bass, other), converted to CoreML for Apple Silicon.
 
-### Install
-
-```sh
+```bash
 Scripts/download-model.sh
 ```
 
-Downloads [HTDemucs FP16 CoreML](https://huggingface.co/dexxdean/htdemucs-coreml) to `~/Library/Application Support/MinusOne/Models/`, compiles once (~20 s), and installs `htdemucs.mlmodelc`. Legacy `HTDemucs_CoreML.*` paths still work. The welcome screen can also download it on first launch.
+Downloads [HTDemucs FP16 CoreML](https://huggingface.co/dexxdean/htdemucs-coreml) (~200 MB) to `~/Library/Application Support/MinusOne/Models/`, compiles once (~20 s), and installs `htdemucs.mlmodelc`. The welcome screen can also download it on first launch.
 
-## Audio routing
+**Kudos:** MinusOne ships with the FP16 CoreML build by [dexxdean](https://huggingface.co/dexxdean/htdemucs-coreml). Original Demucs is by Meta ([facebookresearch/demucs](https://github.com/facebookresearch/demucs)).
 
-**Process Tap** — creates a tap + temporary aggregate device, sets it as system output, processes audio, restores on quit. Supports all-apps or selected-app capture.
+## How audio capture works
 
-**BlackHole** — routes output through BlackHole, captures and processes, restores previous device on quit. Orphaned BlackHole defaults and stale tap aggregates are cleaned up on launch.
+**Process Tap (macOS 14.2+):** briefly hooks into system audio output, processes it, and restores your previous setup when you quit. Supports All Apps or Custom app lists.
+
+**BlackHole:** routes system audio through a free virtual device, processes it, and restores previous settings on quit. Processes all system audio, no per-app selection.
+
+Either way, nothing is saved or recorded.
 
 ## Development
 
-```sh
+```bash
 Scripts/package-icon.sh       # compile Resources/MinusOne.icon → Assets.car (Xcode 26.6+)
-Scripts/build-app.sh          # debug build (embeds icon)
+Scripts/build-app.sh          # debug build
 Scripts/build-app.sh release
 swift build --disable-sandbox # SPM only
 ```
 
 ```
 Sources/MinusOne/           App and UI
-Sources/MinusOne/Audio/   Engine, DSP, neural pipeline
-Sources/CAtomics/         Realtime primitives
-Resources/MinusOne.icon   App icon (Icon Composer)
+Sources/MinusOne/Audio/     Engine, DSP, neural pipeline
+Sources/CAtomics/           Realtime primitives
+Resources/MinusOne.icon     App icon (Icon Composer)
 Resources/MinusOneIcon.svg  Logo vector (active waveform)
 Scripts/build-app.sh
 Scripts/package-icon.sh
@@ -126,11 +175,11 @@ Logs: `~/Library/Logs/MinusOne/MinusOne.log`
 
 ## Limits
 
-- Direct does not reduce vocals; mono sources cannot use Center Cut.
-- Center-panned non-vocals are affected in Center Cut; Neural behaves differently but is not perfect.
+- Direct does not remove vocals; Center Cut needs stereo audio and won't work on mono sources.
+- Center Cut can also mute other centered instruments, not just vocals. Neural avoids that pattern but isn't perfect either.
 - Neural adds ~10 s delay and re-warms after track changes (dry audio until ready).
-- BlackHole capture processes all system audio — per-app selection requires Process Tap.
+- BlackHole processes all system audio. Custom app selection requires Process Tap.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE).
