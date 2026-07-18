@@ -22,7 +22,7 @@ final class NeuralSeparationPipeline {
     private let discontinuityDetector: AudioDiscontinuityDetector
     let mixDSP: NeuralMixDSP
 
-    private let inferenceQueue = DispatchQueue(label: "com.justsing.neural-inference", qos: .utility)
+    private let inferenceQueue = DispatchQueue(label: "com.minusone.neural-inference", qos: .utility)
     private var inferenceWorkItem: DispatchWorkItem?
     private var isInferenceRunning = false
     private let nextInferenceEnd: UnsafeMutablePointer<js_atomic_uint64_t>

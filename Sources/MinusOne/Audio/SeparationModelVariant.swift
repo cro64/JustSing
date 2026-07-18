@@ -63,7 +63,7 @@ enum SeparationModelVariant: String, CaseIterable, Codable, Identifiable {
 
     var demucsIdentifier: String { rawValue }
 
-    /// Legacy balanced install from early JustSing builds.
+    /// Legacy balanced install from early MinusOne builds.
     static let legacyBalancedPackage = "HTDemucs_CoreML.mlpackage"
     static let legacyBalancedCompiled = "HTDemucs_CoreML.mlmodelc"
 

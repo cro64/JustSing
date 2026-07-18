@@ -14,7 +14,7 @@ struct AudioClientProcess: Identifiable, Equatable, Hashable {
 
 @available(macOS 14.2, *)
 enum AudioProcessEnumerator {
-    static let ownBundleID = "com.justsing.app"
+    static let ownBundleID = "com.minusone.app"
 
     static func runningOutputProcesses() -> [AudioClientProcess] {
         deduplicatedProcesses(from: allProcesses().filter { $0.isRunningOutput && $0.bundleID != ownBundleID })

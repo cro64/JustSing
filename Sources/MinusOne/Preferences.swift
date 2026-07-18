@@ -23,7 +23,7 @@ final class Preferences {
     private let defaults: UserDefaults
 
     init(defaults: UserDefaults? = nil) {
-        let resolved = defaults ?? UserDefaults(suiteName: "com.justsing.app") ?? .standard
+        let resolved = defaults ?? UserDefaults(suiteName: "com.minusone.app") ?? .standard
         self.defaults = resolved
         self.defaults.register(defaults: [
             Key.targetIntensity: Double(Self.defaultTargetIntensity),

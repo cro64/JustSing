@@ -54,9 +54,9 @@ enum AudioEngineError: Error, LocalizedError {
     var errorDescription: String? {
         switch self {
         case .blackHoleMissing:
-            return "BlackHole is not installed. Install BlackHole 2ch from existential.audio/blackhole, then reopen JustSing."
+            return "BlackHole is not installed. Install BlackHole 2ch from existential.audio/blackhole, then reopen MinusOne."
         case .blackHoleDriverInstalledButNotLoaded:
-            return "BlackHole is installed, but CoreAudio has not loaded it yet. Restart CoreAudio or reboot, then reopen JustSing."
+            return "BlackHole is installed, but CoreAudio has not loaded it yet. Restart CoreAudio or reboot, then reopen MinusOne."
         case .processTapPermissionDenied:
             return "System audio capture permission denied. Grant System Audio Recording in System Settings."
         case .noPhysicalOutput:

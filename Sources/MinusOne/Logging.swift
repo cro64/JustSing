@@ -4,16 +4,16 @@ import os
 final class AppLogger {
     static let shared = AppLogger()
 
-    private let logger = Logger(subsystem: "com.justsing.app", category: "JustSing")
-    private let queue = DispatchQueue(label: "com.justsing.app.log-file")
+    private let logger = Logger(subsystem: "com.minusone.app", category: "MinusOne")
+    private let queue = DispatchQueue(label: "com.minusone.app.log-file")
     private let fileURL: URL
 
     private init() {
         let baseURL = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Logs", isDirectory: true)
-            .appendingPathComponent("JustSing", isDirectory: true)
+            .appendingPathComponent("MinusOne", isDirectory: true)
         try? FileManager.default.createDirectory(at: baseURL, withIntermediateDirectories: true)
-        fileURL = baseURL.appendingPathComponent("JustSing.log")
+        fileURL = baseURL.appendingPathComponent("MinusOne.log")
     }
 
     func info(_ message: String) {

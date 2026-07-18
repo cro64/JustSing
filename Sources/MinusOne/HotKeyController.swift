@@ -1,7 +1,7 @@
 import AppKit
 import Carbon
 
-private enum JustSingHotKeyID {
+private enum MinusOneHotKeyID {
     static let toggleReduction: UInt32 = 1
 }
 
@@ -48,7 +48,7 @@ final class HotKeyController {
     private let id: UInt32
     private let onToggle: () -> Void
 
-    init(id: UInt32 = JustSingHotKeyID.toggleReduction, onToggle: @escaping () -> Void) {
+    init(id: UInt32 = MinusOneHotKeyID.toggleReduction, onToggle: @escaping () -> Void) {
         self.id = id
         self.onToggle = onToggle
     }

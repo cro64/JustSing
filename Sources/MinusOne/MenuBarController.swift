@@ -116,7 +116,7 @@ final class MenuBarController: NSObject {
             color = .white
         }
 
-        button.image = JustSingIcon.waveform(size: size, color: color, isActive: isFilterActive)
+        button.image = MinusOneIcon.waveform(size: size, color: color, isActive: isFilterActive)
         button.contentTintColor = nil
     }
 

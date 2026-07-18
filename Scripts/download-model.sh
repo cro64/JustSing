@@ -24,7 +24,7 @@ case "${VARIANT}" in
     ;;
 esac
 
-MODELS_DIR="${HOME}/Library/Application Support/JustSing/Models"
+MODELS_DIR="${HOME}/Library/Application Support/MinusOne/Models"
 PACKAGE="${MODELS_DIR}/${VARIANT}.mlpackage"
 COMPILED="${MODELS_DIR}/${VARIANT}.mlmodelc"
 LEGACY_PACKAGE_PATH="${MODELS_DIR}/${LEGACY_PACKAGE}"
@@ -91,7 +91,7 @@ import CoreML
 import Foundation
 
 let variant = "${VARIANT}"
-let modelsDir = ("~/Library/Application Support/JustSing/Models" as NSString).expandingTildeInPath
+let modelsDir = ("~/Library/Application Support/MinusOne/Models" as NSString).expandingTildeInPath
 let packagePath = "${SOURCE_PACKAGE_PATH}"
 let compiledPath = (modelsDir as NSString).appendingPathComponent("\(variant).mlmodelc")
 let packageURL = URL(fileURLWithPath: packagePath)
@@ -106,4 +106,4 @@ print("Compiled model saved to \(compiledURL.path)")
 SWIFT
 fi
 
-echo "Done. Select Neural → Balanced in JustSing settings."
+echo "Done. Select Neural → Balanced in MinusOne settings."

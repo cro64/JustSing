@@ -61,7 +61,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotKeyController?.registerDefaultHotKey()
 
         menuBarController?.updateStatus(.idle)
-        AppLogger.shared.info("JustSing launched")
+        AppLogger.shared.info("MinusOne launched")
 
         restoreSessionIfNeeded()
     }
@@ -81,6 +81,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotKeyController?.unregister()
         deviceMonitor?.stop()
         audioEngine.stop(restoreOutput: true)
-        AppLogger.shared.info("JustSing terminated")
+        AppLogger.shared.info("MinusOne terminated")
     }
 }

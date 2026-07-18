@@ -1,4 +1,4 @@
-# JustSing
+# MinusOne
 
 macOS menu bar app for live vocal reduction in system audio. Runs in the background, processes in real time, and does not record or store anything.
 
@@ -19,11 +19,11 @@ Capture uses **Process Tap** on macOS 14.2+ (recommended), with **BlackHole** fa
 ## Quick Start
 
 ```sh
-Scripts/build-app.sh release          # → build/JustSing.app
+Scripts/build-app.sh release          # → build/MinusOne.app
 Scripts/download-model.sh htdemucs    # Neural only, ~200 MB one-time
 ```
 
-Open `build/JustSing.app`. Left-click the menu bar waveform icon for settings, then choose **Neural → Balanced** after installing the model. Right-click the icon to toggle reduction.
+Open `build/MinusOne.app`. Left-click the menu bar waveform icon for settings, then choose **Neural → Balanced** after installing the model. Right-click the icon to toggle reduction.
 
 ## Requirements
 
@@ -101,7 +101,7 @@ Only **Balanced** has a CoreML build. Fine-Tuned and Six-Stem appear grayed in s
 Scripts/download-model.sh          # same as htdemucs
 ```
 
-Downloads [HTDemucs FP16 CoreML](https://huggingface.co/dexxdean/htdemucs-coreml) to `~/Library/Application Support/JustSing/Models/`, compiles once (~20 s), and installs `htdemucs.mlmodelc`. Legacy `HTDemucs_CoreML.*` paths still work.
+Downloads [HTDemucs FP16 CoreML](https://huggingface.co/dexxdean/htdemucs-coreml) to `~/Library/Application Support/MinusOne/Models/`, compiles once (~20 s), and installs `htdemucs.mlmodelc`. Legacy `HTDemucs_CoreML.*` paths still work.
 
 ## Audio routing
 
@@ -117,14 +117,14 @@ swift build --disable-sandbox # SPM only
 ```
 
 ```
-Sources/JustSing/           App and UI
-Sources/JustSing/Audio/   Engine, DSP, neural pipeline
+Sources/MinusOne/           App and UI
+Sources/MinusOne/Audio/   Engine, DSP, neural pipeline
 Sources/CAtomics/         Realtime primitives
 Scripts/build-app.sh
 Scripts/download-model.sh
 ```
 
-Logs: `~/Library/Logs/JustSing/JustSing.log`
+Logs: `~/Library/Logs/MinusOne/MinusOne.log`
 
 ## Limits
 

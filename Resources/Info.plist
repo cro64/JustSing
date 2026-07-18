@@ -5,27 +5,27 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
     <key>CFBundleExecutable</key>
-    <string>JustSing</string>
+    <string>MinusOne</string>
     <key>CFBundleIdentifier</key>
-    <string>com.justsing.app</string>
+    <string>com.minusone.app</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>JustSing</string>
+    <string>MinusOne</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.1.0</string>
+    <string>0.3.0</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>3</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
     <key>LSUIElement</key>
     <true/>
     <key>NSMicrophoneUsageDescription</key>
-    <string>JustSing needs audio input permission when using the BlackHole fallback capture path.</string>
+    <string>MinusOne needs audio input permission when using the BlackHole fallback capture path.</string>
     <key>NSAudioCaptureUsageDescription</key>
-    <string>JustSing captures system audio to reduce vocals in real time. No audio is recorded or stored.</string>
+    <string>MinusOne captures system audio to reduce vocals in real time. No audio is recorded or stored.</string>
     <key>NSHighResolutionCapable</key>
     <true/>
 </dict>

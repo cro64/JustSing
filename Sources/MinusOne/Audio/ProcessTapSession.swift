@@ -44,7 +44,7 @@ enum ProcessTapSession {
             )
         }
 
-        description.name = "JustSing System Tap"
+        description.name = "MinusOne System Tap"
         let tapUUID = UUID()
         description.uuid = tapUUID
         description.muteBehavior = .muted
@@ -69,9 +69,9 @@ enum ProcessTapSession {
             throw AudioEngineError.unsupportedFormat("Unable to create AVAudioFormat from tap stream description")
         }
 
-        let aggregateUID = "com.justsing.aggregate.\(UUID().uuidString)"
+        let aggregateUID = "com.minusone.aggregate.\(UUID().uuidString)"
         let aggregateDescription: [String: Any] = [
-            kAudioAggregateDeviceNameKey: "JustSing Tap Aggregate",
+            kAudioAggregateDeviceNameKey: "MinusOne Tap Aggregate",
             kAudioAggregateDeviceUIDKey: aggregateUID,
             kAudioAggregateDeviceMainSubDeviceKey: outputDeviceUID,
             kAudioAggregateDeviceIsPrivateKey: true,
@@ -155,7 +155,7 @@ enum ProcessTapSession {
     }
 
     static func destroyStaleAggregates() {
-        destroyStaleDevices(matching: { $0.hasPrefix("com.justsing.aggregate.") })
+        destroyStaleDevices(matching: { $0.hasPrefix("com.minusone.aggregate.") })
     }
 
     static func cleanupBeforeCreate() {
@@ -194,7 +194,7 @@ enum ProcessTapSession {
                 continue
             }
             let status = AudioHardwareDestroyAggregateDevice(id)
-            AppLogger.shared.info("Destroyed stale JustSing aggregate \(uid) (status \(status))")
+            AppLogger.shared.info("Destroyed stale MinusOne aggregate \(uid) (status \(status))")
         }
     }
 

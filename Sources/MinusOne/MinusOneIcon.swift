@@ -1,6 +1,6 @@
 import AppKit
 
-enum JustSingIcon {
+enum MinusOneIcon {
     /// Waveform glyph from the logo SVG (5-bar variant).
     /// Off: bars with a tall center. On: center collapses to a dot.
     static func waveform(size: CGFloat, color: NSColor, isActive: Bool) -> NSImage {

@@ -5,9 +5,9 @@ enum OnboardingController {
         guard !preferences.hasCompletedOnboarding else { return }
 
         let alert = NSAlert()
-        alert.messageText = "Welcome to JustSing"
+        alert.messageText = "Welcome to MinusOne"
         alert.informativeText = """
-        JustSing reduces center-panned vocals in live system audio from any app — Music, Spotify, browser playback, and more.
+        MinusOne reduces center-panned vocals in live system audio from any app — Music, Spotify, browser playback, and more.
 
         Capture method on this Mac: \(captureBackend.displayName)
 

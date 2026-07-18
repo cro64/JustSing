@@ -1,5 +1,5 @@
-#ifndef JUSTSING_CATOMICS_H
-#define JUSTSING_CATOMICS_H
+#ifndef MINUSONE_CATOMICS_H
+#define MINUSONE_CATOMICS_H
 
 #include <stdint.h>
 

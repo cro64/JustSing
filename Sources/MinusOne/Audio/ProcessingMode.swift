@@ -1,6 +1,6 @@
 import Foundation
 
-/// How JustSing processes live system audio. All three ship in the app — no add-ons.
+/// How MinusOne processes live system audio. All three ship in the app — no add-ons.
 enum ProcessingMode: String, CaseIterable, Codable {
     /// Unmodified system audio, zero latency.
     case directListen = "directListen"

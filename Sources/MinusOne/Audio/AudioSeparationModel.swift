@@ -61,7 +61,7 @@ enum SeparationModelError: Error, LocalizedError {
 }
 
 enum SeparationModelFactory {
-    static let modelsDirectoryName = "JustSing/Models"
+    static let modelsDirectoryName = "MinusOne/Models"
 
     static let modelInstallHint = """
         Run Scripts/download-model.sh to install Demucs models (Balanced is available now).

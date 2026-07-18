@@ -151,7 +151,7 @@ final class AppPickerPopUpButton: NSPopUpButton, NSMenuDelegate {
         if app.objectID != kAudioObjectUnknown {
             return "Start playback in this app before enabling reduction"
         }
-        return "Play audio once so JustSing can attach to this app"
+        return "Play audio once so MinusOne can attach to this app"
     }
 }
 

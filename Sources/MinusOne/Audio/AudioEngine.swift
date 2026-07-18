@@ -19,7 +19,7 @@ final class AudioEngine {
     private var outputUnit: AudioUnit?
     private var processTapSetup: TapAggregateSetup?
     private var processTapProcID: AudioDeviceIOProcID?
-    private let processTapQueue = DispatchQueue(label: "com.justsing.process-tap-io", qos: .userInteractive)
+    private let processTapQueue = DispatchQueue(label: "com.minusone.process-tap-io", qos: .userInteractive)
     private var processTapCallbackCount: UInt64 = 0
     private var processTapLoggedFirstBuffer = false
     private var processTapLoggedNilOutput = false
@@ -206,7 +206,7 @@ final class AudioEngine {
                 if let currentDefaultID = CoreAudioDevices.defaultOutputDeviceID(),
                    let currentDefaultDevice = CoreAudioDevices.device(for: currentDefaultID),
                    !currentDefaultDevice.isBlackHole,
-                   !currentDefaultDevice.uid.hasPrefix("com.justsing.aggregate.") {
+                   !currentDefaultDevice.uid.hasPrefix("com.minusone.aggregate.") {
                     previousDefaultOutputID = currentDefaultID
                 }
 
@@ -915,7 +915,7 @@ final class AudioEngine {
         if activeCaptureBackend == .processTap,
            let defaultID = CoreAudioDevices.defaultOutputDeviceID(),
            let defaultDevice = CoreAudioDevices.device(for: defaultID),
-           defaultDevice.uid.hasPrefix("com.justsing.aggregate.") {
+           defaultDevice.uid.hasPrefix("com.minusone.aggregate.") {
             return
         }
 
@@ -1060,7 +1060,7 @@ final class AudioEngine {
            let defaultDevice = CoreAudioDevices.device(for: defaultID),
            defaultDevice.isOutputCapable,
            !defaultDevice.isBlackHole,
-           !defaultDevice.uid.hasPrefix("com.justsing.aggregate.") {
+           !defaultDevice.uid.hasPrefix("com.minusone.aggregate.") {
             return defaultDevice
         }
 

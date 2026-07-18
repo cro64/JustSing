@@ -3,17 +3,17 @@
 import PackageDescription
 
 let package = Package(
-    name: "JustSing",
+    name: "MinusOne",
     platforms: [
         .macOS(.v14)
     ],
     products: [
-        .executable(name: "JustSing", targets: ["JustSing"])
+        .executable(name: "MinusOne", targets: ["MinusOne"])
     ],
     targets: [
         .target(name: "CAtomics"),
         .executableTarget(
-            name: "JustSing",
+            name: "MinusOne",
             dependencies: ["CAtomics"],
             linkerSettings: [
                 .linkedFramework("AppKit"),
