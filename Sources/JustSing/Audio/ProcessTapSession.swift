@@ -12,34 +12,38 @@ struct TapAggregateSetup {
 
 @available(macOS 14.2, *)
 enum ProcessTapSession {
-    static func create(outputDeviceUID: String) throws -> TapAggregateSetup {
+    static func create(
+        outputDeviceUID: String,
+        captureScope: CaptureScope,
+        selectedBundleIDs: Set<String>
+    ) throws -> TapAggregateSetup {
         cleanupBeforeCreate()
 
-        let ownPID = ProcessInfo.processInfo.processIdentifier
-        var ownProcessObject = AudioObjectID(kAudioObjectUnknown)
-        var translateAddress = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyTranslatePIDToProcessObject,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        var translatePID = ownPID
-        var translateSize = UInt32(MemoryLayout<AudioObjectID>.size)
-        let translateStatus = AudioObjectGetPropertyData(
-            AudioObjectID(kAudioObjectSystemObject),
-            &translateAddress,
-            UInt32(MemoryLayout<pid_t>.size),
-            &translatePID,
-            &translateSize,
-            &ownProcessObject
-        )
-        let excludedProcesses: [AudioObjectID]
-        if translateStatus == noErr, ownProcessObject != kAudioObjectUnknown {
-            excludedProcesses = [ownProcessObject]
-        } else {
-            excludedProcesses = []
+        let ownProcessObject = ownProcessObjectID()
+        let description: CATapDescription
+
+        switch captureScope {
+        case .allApps:
+            let excludedProcesses: [AudioObjectID]
+            if let ownProcessObject {
+                excludedProcesses = [ownProcessObject]
+            } else {
+                excludedProcesses = []
+            }
+            description = CATapDescription(stereoGlobalTapButExcludeProcesses: excludedProcesses)
+            AppLogger.shared.info("Creating global process tap (all apps)")
+
+        case .selectedApps:
+            let tappedProcesses = AudioProcessEnumerator.processObjectIDs(forBundleIDs: selectedBundleIDs)
+            guard !tappedProcesses.isEmpty else {
+                throw AudioEngineError.noSelectedAudioProcesses
+            }
+            description = CATapDescription(stereoMixdownOfProcesses: tappedProcesses)
+            AppLogger.shared.info(
+                "Creating selective process tap for \(tappedProcesses.count) process object(s) from \(selectedBundleIDs.count) bundle ID(s)"
+            )
         }
 
-        let description = CATapDescription(stereoGlobalTapButExcludeProcesses: excludedProcesses)
         description.name = "JustSing System Tap"
         let tapUUID = UUID()
         description.uuid = tapUUID
@@ -216,6 +220,30 @@ enum ProcessTapSession {
             "Tap format sampleRate=\(format.mSampleRate) channels=\(format.mChannelsPerFrame) bits=\(format.mBitsPerChannel) flags=\(format.mFormatFlags) interleaved=\(format.mFormatFlags & kAudioFormatFlagIsNonInterleaved == 0)"
         )
         return format
+    }
+
+    private static func ownProcessObjectID() -> AudioObjectID? {
+        let ownPID = ProcessInfo.processInfo.processIdentifier
+        var ownProcessObject = AudioObjectID(kAudioObjectUnknown)
+        var translateAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyTranslatePIDToProcessObject,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var translatePID = ownPID
+        var translateSize = UInt32(MemoryLayout<AudioObjectID>.size)
+        let translateStatus = AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &translateAddress,
+            UInt32(MemoryLayout<pid_t>.size),
+            &translatePID,
+            &translateSize,
+            &ownProcessObject
+        )
+        guard translateStatus == noErr, ownProcessObject != kAudioObjectUnknown else {
+            return nil
+        }
+        return ownProcessObject
     }
 
     private static func check(_ status: OSStatus, _ message: String) throws {

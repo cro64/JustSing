@@ -13,10 +13,12 @@ final class Preferences {
         static let hasCompletedOnboarding = "hasCompletedOnboarding"
         static let processingMode = "processingMode"
         static let separationModelVariant = "separationModelVariant"
+        static let captureScope = "captureScope"
+        static let selectedAppBundleIDs = "selectedAppBundleIDs"
         static let preferencesSchemaVersion = "preferencesSchemaVersion"
     }
 
-    private static let currentSchemaVersion = 6
+    private static let currentSchemaVersion = 7
 
     private let defaults: UserDefaults
 
@@ -30,7 +32,9 @@ final class Preferences {
             Key.lastReductionEnabled: false,
             Key.hasCompletedOnboarding: false,
             Key.processingMode: ProcessingMode.centerVocalCut.rawValue,
-            Key.separationModelVariant: SeparationModelVariant.balanced.rawValue
+            Key.separationModelVariant: SeparationModelVariant.balanced.rawValue,
+            Key.captureScope: CaptureScope.allApps.rawValue,
+            Key.selectedAppBundleIDs: [String]()
         ])
         seedDefaultsIfNeeded()
         migrateIfNeeded()
@@ -78,6 +82,11 @@ final class Preferences {
         if version < 6,
            defaults.object(forKey: Key.separationModelVariant) == nil {
             defaults.set(SeparationModelVariant.balanced.rawValue, forKey: Key.separationModelVariant)
+        }
+
+        if version < 7 {
+            defaults.set(CaptureScope.allApps.rawValue, forKey: Key.captureScope)
+            defaults.set([String](), forKey: Key.selectedAppBundleIDs)
         }
 
         defaults.set(Self.currentSchemaVersion, forKey: Key.preferencesSchemaVersion)
@@ -128,6 +137,26 @@ final class Preferences {
             return variant
         }
         set { defaults.set(newValue.rawValue, forKey: Key.separationModelVariant) }
+    }
+
+    var captureScope: CaptureScope {
+        get {
+            guard let raw = defaults.string(forKey: Key.captureScope),
+                  let scope = CaptureScope(rawValue: raw) else {
+                return .allApps
+            }
+            return scope
+        }
+        set { defaults.set(newValue.rawValue, forKey: Key.captureScope) }
+    }
+
+    var selectedAppBundleIDs: Set<String> {
+        get {
+            Set(defaults.stringArray(forKey: Key.selectedAppBundleIDs) ?? [])
+        }
+        set {
+            defaults.set(Array(newValue).sorted(), forKey: Key.selectedAppBundleIDs)
+        }
     }
 }
 

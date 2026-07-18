@@ -45,6 +45,9 @@ final class AudioEngine {
     private var suppressDeviceRebuild = false
     private var pendingDeviceRebuild: DispatchWorkItem?
     private var lastProcessTapPermissionDenied = false
+    private var separationModelLoadTask: DispatchWorkItem?
+    private var captureRebuildWorkItem: DispatchWorkItem?
+    private let separationModelLock = NSLock()
 
     var isNeuralSeparationAvailable: Bool {
         SeparationModelVariant.allCases.contains { SeparationModelFactory.isAvailable($0) }
@@ -75,10 +78,9 @@ final class AudioEngine {
         processedLeft.initialize(repeating: 0, count: maxFramesPerCallback)
         processedRight.initialize(repeating: 0, count: maxFramesPerCallback)
 
-        tryLoadSeparationModelIfPresent()
-        if preferences.processingMode == .aiVocalSeparation, separationModel == nil {
+        if preferences.processingMode == .aiVocalSeparation, !SeparationModelFactory.isAvailable(preferences.separationModelVariant) {
             preferences.processingMode = .centerVocalCut
-            AppLogger.shared.warning("Neural mode unavailable — model not loaded; using Center Cut")
+            AppLogger.shared.warning("Neural mode unavailable — model not installed; using Center Cut")
         }
     }
 
@@ -121,6 +123,12 @@ final class AudioEngine {
             do {
                 try startProcessTap()
                 completion?(true)
+                return
+            } catch AudioEngineError.noSelectedAudioProcesses {
+                let message = AudioEngineError.noSelectedAudioProcesses.localizedDescription
+                status = .error(message)
+                AppLogger.shared.error("Process tap failed: \(message)")
+                completion?(false)
                 return
             } catch let error as AudioEngineError where error.isLikelyPermissionDenied {
                 lastProcessTapPermissionDenied = true
@@ -187,7 +195,11 @@ final class AudioEngine {
                     aggregateOutputUID = output.uid
                 }
 
-                let setup = try ProcessTapSession.create(outputDeviceUID: aggregateOutputUID)
+                let setup = try ProcessTapSession.create(
+                    outputDeviceUID: aggregateOutputUID,
+                    captureScope: preferences.captureScope,
+                    selectedBundleIDs: preferences.selectedAppBundleIDs
+                )
                 processTapSetup = setup
                 sampleRate = setup.sampleRate
 
@@ -227,7 +239,6 @@ final class AudioEngine {
                 isReductionEnabled = false
                 activeCaptureBackend = .processTap
                 let channelCount = Int(setup.streamFormat.mChannelsPerFrame)
-                startNeuralPipelineIfNeeded()
                 status = resolvedStartupStatus(channelCount: channelCount)
                 AppLogger.shared.info(
                     "Audio engine started with Process Tap IO on aggregate \(setup.aggregateID) and \(output.name) output"
@@ -264,7 +275,6 @@ final class AudioEngine {
         isRunning = true
         isReductionEnabled = false
         activeCaptureBackend = .blackHole
-        startNeuralPipelineIfNeeded()
         status = resolvedStartupStatus(channelCount: Int(blackHole.inputChannelCount))
         AppLogger.shared.info("Audio engine started with BlackHole input and \(output.name) output")
         }
@@ -546,6 +556,9 @@ final class AudioEngine {
 
         isReductionEnabled = true
         preferences.lastReductionEnabled = true
+        if preferences.processingMode == .aiVocalSeparation, neuralPipeline == nil {
+            startNeuralPipelineIfNeeded()
+        }
         applyReductionIntensity(preferences.targetIntensity)
         updateActiveStatus()
         AppLogger.shared.info("Vocal reduction enabled (target intensity \(preferences.targetIntensity))")
@@ -596,32 +609,93 @@ final class AudioEngine {
             return
         }
 
-        if preferences.processingMode == .aiVocalSeparation,
-           let pipeline = neuralPipeline {
-            switch pipeline.state {
-            case .warmingUp:
-                status = .warmingUp
+        if preferences.processingMode == .aiVocalSeparation {
+            guard isReductionEnabled else {
+                status = .passthrough
                 return
-            case .error(let message):
-                status = .error(message)
-                return
-            case .idle, .ready:
-                break
             }
+
+            if let pipeline = neuralPipeline {
+                switch pipeline.state {
+                case .warmingUp, .idle:
+                    status = .warmingUp
+                case .ready:
+                    status = .active
+                case .error(let message):
+                    status = .error(message)
+                }
+                return
+            }
+
+            // Model or pipeline still starting — don't flash active before warm-up.
+            status = .warmingUp
+            return
         }
 
         status = isReductionEnabled ? .active : .passthrough
     }
 
+    func preloadSeparationModelIfNeeded() {
+        guard preferences.processingMode == .aiVocalSeparation else { return }
+        guard SeparationModelFactory.isAvailable(preferences.separationModelVariant) else { return }
+
+        separationModelLock.lock()
+        if separationModel != nil {
+            separationModelLock.unlock()
+            return
+        }
+        if separationModelLoadTask != nil {
+            separationModelLock.unlock()
+            return
+        }
+
+        let variant = preferences.separationModelVariant
+        let rate = sampleRate
+        let task = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            do {
+                let model = try SeparationModelFactory.loadModel(
+                    variant: variant,
+                    captureSampleRate: rate
+                )
+                self.separationModelLock.lock()
+                if self.separationModel == nil {
+                    self.separationModel = model
+                }
+                self.separationModelLoadTask = nil
+                self.separationModelLock.unlock()
+
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, self.isRunning, self.isReductionEnabled else { return }
+                    if self.preferences.processingMode == .aiVocalSeparation, self.neuralPipeline == nil {
+                        self.startNeuralPipelineIfNeeded()
+                        self.updateActiveStatus()
+                    }
+                }
+            } catch {
+                self.separationModelLock.lock()
+                self.separationModelLoadTask = nil
+                self.separationModelLock.unlock()
+                AppLogger.shared.error("Background separation model preload failed: \(error.localizedDescription)")
+            }
+        }
+        separationModelLoadTask = task
+        separationModelLock.unlock()
+
+        DispatchQueue.global(qos: .utility).async(execute: task)
+    }
+
     func setSeparationModelVariant(_ variant: SeparationModelVariant) {
         guard preferences.separationModelVariant != variant else { return }
         preferences.separationModelVariant = variant
+        separationModelLock.lock()
+        separationModelLoadTask?.cancel()
+        separationModelLoadTask = nil
         separationModel = nil
+        separationModelLock.unlock()
         if isRunning {
             disableReduction()
             rebuildProcessingPipeline()
-        } else {
-            tryLoadSeparationModelIfPresent()
         }
     }
 
@@ -642,16 +716,23 @@ final class AudioEngine {
 
     @discardableResult
     private func ensureSeparationModelLoaded() -> Bool {
+        separationModelLock.lock()
         if let separationModel, separationModel.variant == preferences.separationModelVariant {
+            separationModelLock.unlock()
             return true
         }
         separationModel = nil
+        separationModelLock.unlock()
+
         guard SeparationModelFactory.isAvailable(preferences.separationModelVariant) else { return false }
         do {
-            separationModel = try SeparationModelFactory.loadModel(
+            let model = try SeparationModelFactory.loadModel(
                 variant: preferences.separationModelVariant,
                 captureSampleRate: sampleRate
             )
+            separationModelLock.lock()
+            separationModel = model
+            separationModelLock.unlock()
             return true
         } catch {
             AppLogger.shared.error("Failed to load separation model: \(error.localizedDescription)")
@@ -662,12 +743,15 @@ final class AudioEngine {
     private func tryLoadSeparationModelIfPresent() {
         guard SeparationModelFactory.isAvailable(preferences.separationModelVariant) else { return }
         do {
-            separationModel = try SeparationModelFactory.loadModel(
+            let model = try SeparationModelFactory.loadModel(
                 variant: preferences.separationModelVariant,
                 captureSampleRate: sampleRate
             )
+            separationModelLock.lock()
+            separationModel = model
+            separationModelLock.unlock()
         } catch {
-            AppLogger.shared.error("Separation model file found but failed to load at launch: \(error.localizedDescription)")
+            AppLogger.shared.error("Separation model file found but failed to load: \(error.localizedDescription)")
         }
     }
 
@@ -681,17 +765,23 @@ final class AudioEngine {
 
     private func startNeuralPipelineIfNeeded() {
         stopNeuralPipeline()
-        guard preferences.processingMode == .aiVocalSeparation,
-              ensureSeparationModelLoaded(),
-              let separationModel
-        else { return }
+        guard preferences.processingMode == .aiVocalSeparation, isReductionEnabled else { return }
 
-        let windowSeconds = separationModel.preferredWindowSeconds
+        separationModelLock.lock()
+        let model = separationModel
+        separationModelLock.unlock()
+        guard let model else {
+            preloadSeparationModelIfNeeded()
+            status = .warmingUp
+            return
+        }
+
+        let windowSeconds = model.preferredWindowSeconds
         // Larger hop = fewer full-window Demucs passes (~3.5 s vs former 2 s).
         let hopSeconds = min(3.5, max(2.5, windowSeconds / 3))
 
         let pipeline = NeuralSeparationPipeline(
-            model: separationModel,
+            model: model,
             sampleRate: sampleRate,
             windowSeconds: windowSeconds,
             hopSeconds: hopSeconds,
@@ -732,9 +822,7 @@ final class AudioEngine {
         if preferences.processingMode == .centerVocalCut, channelCount < 2 {
             return .monoInput
         }
-        if preferences.processingMode == .aiVocalSeparation, separationModel != nil {
-            return .warmingUp
-        }
+        // Reduction is always off at engine start — neural warm-up begins on enableReduction.
         return .passthrough
     }
 
@@ -755,6 +843,51 @@ final class AudioEngine {
         preferences.rampDurationMilliseconds = value
         dsp.rampDurationMilliseconds.store(value)
         neuralPipeline?.mixDSP.rampDurationMilliseconds.store(value)
+    }
+
+    func setCaptureScope(_ scope: CaptureScope) {
+        guard preferences.captureScope != scope else { return }
+        preferences.captureScope = scope
+        rebuildForCaptureConfigChangeIfNeeded()
+    }
+
+    func setSelectedAppBundleIDs(_ bundleIDs: Set<String>) {
+        guard preferences.selectedAppBundleIDs != bundleIDs else { return }
+        preferences.selectedAppBundleIDs = bundleIDs
+        rebuildForCaptureConfigChangeIfNeeded()
+    }
+
+    func toggleSelectedAppBundleID(_ bundleID: String) {
+        var selected = preferences.selectedAppBundleIDs
+        if selected.contains(bundleID) {
+            selected.remove(bundleID)
+        } else {
+            selected.insert(bundleID)
+        }
+        setSelectedAppBundleIDs(selected)
+    }
+
+    private func rebuildForCaptureConfigChangeIfNeeded() {
+        guard isRunning, activeCaptureBackend == .processTap else { return }
+        guard captureConfigurationIsValidForProcessTap() else { return }
+
+        captureRebuildWorkItem?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            self?.scheduleRebuildForDeviceChange()
+        }
+        captureRebuildWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: item)
+    }
+
+    private func captureConfigurationIsValidForProcessTap() -> Bool {
+        guard preferences.captureScope == .selectedApps else { return true }
+        guard !preferences.selectedAppBundleIDs.isEmpty else { return false }
+        if #available(macOS 14.2, *) {
+            return !AudioProcessEnumerator.processObjectIDs(
+                forBundleIDs: preferences.selectedAppBundleIDs
+            ).isEmpty
+        }
+        return false
     }
 
     func scheduleRebuildForDeviceChange() {
@@ -816,6 +949,9 @@ final class AudioEngine {
                     try startBlackHole()
                 }
                 isReductionEnabled = shouldRestoreReduction
+                if shouldRestoreReduction {
+                    startNeuralPipelineIfNeeded()
+                }
                 applyReductionIntensity(isReductionEnabled ? preferences.targetIntensity : 0)
                 if let output = activeOutputDevice {
                     AppLogger.shared.info("Audio engine rebuilt for output device \(output.name)")

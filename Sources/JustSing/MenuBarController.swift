@@ -1,19 +1,17 @@
 import AppKit
 
-final class MenuBarController: NSObject, NSPopoverDelegate {
-    private enum Layout {
-        static let popoverWidth: CGFloat = 220
-        static let popoverHeight: CGFloat = 184
-    }
+final class MenuBarController: NSObject {
 
     private let preferences: Preferences
     private let audioEngine: AudioEngine
     private let statusItem: NSStatusItem
-    private let popover = NSPopover()
     private let settingsViewController: SettingsPopoverViewController
+    private let settingsPanel: NSPanel
 
     private var currentStatus: AudioEngineStatus = .idle
     private var isFilterActive = false
+    private var dismissMonitor: Any?
+    private var localDismissMonitor: Any?
 
     init(preferences: Preferences, audioEngine: AudioEngine) {
         self.preferences = preferences
@@ -23,9 +21,12 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
             preferences: preferences,
             audioEngine: audioEngine
         )
+        settingsPanel = Self.makeSettingsPanel()
         super.init()
+        _ = settingsViewController.view
+        settingsPanel.contentView = settingsViewController.view
         configureStatusItem()
-        configurePopover()
+        configureSettingsCallbacks()
     }
 
     func updateStatus(_ status: AudioEngineStatus) {
@@ -42,7 +43,7 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
             button.toolTip = text
         }
         updateIcon()
-        settingsViewController.updatePermissionButton(for: status)
+        settingsViewController.updateStatusDisplay(status, isFilterActive: isFilterActive)
     }
 
     func performToggleWithOnboarding() {
@@ -54,6 +55,28 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         updateStatus(audioEngine.status)
     }
 
+    private static func makeSettingsPanel() -> NSPanel {
+        let size = NSSize(
+            width: PopoverUI.Metrics.width,
+            height: PopoverUI.Metrics.settingsHeight
+        )
+        let panel = NSPanel(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: true
+        )
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = false
+        panel.level = .popUpMenu
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
+        panel.isReleasedWhenClosed = false
+        panel.hidesOnDeactivate = false
+        panel.becomesKeyOnlyIfNeeded = true
+        return panel
+    }
+
     private func configureStatusItem() {
         guard let button = statusItem.button else { return }
         button.imagePosition = .imageOnly
@@ -63,16 +86,12 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         updateIcon()
     }
 
-    private func configurePopover() {
-        popover.contentSize = NSSize(width: Layout.popoverWidth, height: Layout.popoverHeight)
-        popover.behavior = .transient
-        popover.delegate = self
-        popover.contentViewController = settingsViewController
-
+    private func configureSettingsCallbacks() {
         settingsViewController.onSettingsChanged = { [weak self] in
             self?.updateIcon()
         }
-        settingsViewController.onQuit = {
+        settingsViewController.onQuit = { [weak self] in
+            self?.closeSettings()
             NSApp.terminate(nil)
         }
     }
@@ -97,7 +116,7 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
             color = .white
         }
 
-        button.image = FeatherIcon.headphones(size: size, color: color)
+        button.image = JustSingIcon.waveform(size: size, color: color, isActive: isFilterActive)
         button.contentTintColor = nil
     }
 
@@ -105,26 +124,98 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         guard let event = NSApp.currentEvent else { return }
 
         if event.type == .rightMouseUp || event.modifierFlags.contains(.control) {
-            togglePopover(on: sender)
+            performToggleWithOnboarding()
             return
         }
 
-        performToggleWithOnboarding()
+        toggleSettings(on: sender)
     }
 
-    private func togglePopover(on button: NSStatusBarButton) {
-        if popover.isShown {
-            popover.performClose(nil)
+    private func toggleSettings(on button: NSStatusBarButton) {
+        if settingsPanel.isVisible {
+            closeSettings()
             return
         }
 
         _ = settingsViewController.view
         settingsViewController.reloadFromPreferences()
-        settingsViewController.updatePermissionButton(for: currentStatus)
-        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        settingsViewController.updateStatusDisplay(currentStatus, isFilterActive: isFilterActive)
+
+        positionSettingsPanel(relativeTo: button)
+        settingsPanel.orderFront(nil)
+        startDismissMonitors()
     }
 
-    func popoverDidClose(_ notification: Notification) {
+    private func positionSettingsPanel(relativeTo button: NSStatusBarButton) {
+        guard let buttonWindow = button.window else { return }
+
+        let buttonRect = button.convert(button.bounds, to: nil)
+        let screenRect = buttonWindow.convertToScreen(buttonRect)
+        let size = settingsPanel.frame.size
+        let gap: CGFloat = 4
+
+        var origin = NSPoint(
+            x: screenRect.maxX + gap,
+            y: screenRect.maxY - size.height
+        )
+
+        let screen = buttonWindow.screen ?? NSScreen.main
+        if let visible = screen?.visibleFrame {
+            if origin.x + size.width > visible.maxX {
+                origin.x = screenRect.minX - size.width - gap
+            }
+            origin.y = min(origin.y, visible.maxY - size.height)
+            origin.y = max(origin.y, visible.minY)
+        }
+
+        settingsPanel.setFrame(NSRect(origin: origin, size: size), display: true)
+    }
+
+    private func closeSettings() {
+        guard settingsPanel.isVisible else {
+            stopDismissMonitors()
+            return
+        }
+        settingsPanel.orderOut(nil)
+        stopDismissMonitors()
         settingsViewController.reloadFromPreferences()
+    }
+
+    private func startDismissMonitors() {
+        stopDismissMonitors()
+
+        dismissMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            self?.closeSettings()
+        }
+
+        localDismissMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+            guard let self, self.settingsPanel.isVisible else { return event }
+            if self.isSettingsRelated(event.window) {
+                return event
+            }
+            if let button = self.statusItem.button, event.window == button.window {
+                return event
+            }
+            self.closeSettings()
+            return event
+        }
+    }
+
+    private func stopDismissMonitors() {
+        if let dismissMonitor {
+            NSEvent.removeMonitor(dismissMonitor)
+            self.dismissMonitor = nil
+        }
+        if let localDismissMonitor {
+            NSEvent.removeMonitor(localDismissMonitor)
+            self.localDismissMonitor = nil
+        }
+    }
+
+    private func isSettingsRelated(_ window: NSWindow?) -> Bool {
+        guard let window else { return false }
+        if window == settingsPanel { return true }
+        // Nested pop-up menus (Mode / Model / Apps) live in their own windows.
+        return window.level.rawValue >= NSWindow.Level.popUpMenu.rawValue
     }
 }

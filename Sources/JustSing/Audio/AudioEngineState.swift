@@ -47,6 +47,7 @@ enum AudioEngineError: Error, LocalizedError {
     case blackHoleDriverInstalledButNotLoaded
     case processTapPermissionDenied
     case noPhysicalOutput
+    case noSelectedAudioProcesses
     case coreAudio(String, OSStatus)
     case unsupportedFormat(String)
 
@@ -60,6 +61,8 @@ enum AudioEngineError: Error, LocalizedError {
             return "System audio capture permission denied. Grant System Audio Recording in System Settings."
         case .noPhysicalOutput:
             return "No compatible physical output device was found."
+        case .noSelectedAudioProcesses:
+            return "No selected apps are currently playing audio. Start playback in a checked app, or switch to All Apps."
         case .coreAudio(let message, let status):
             return "\(message) (OSStatus \(status))"
         case .unsupportedFormat(let message):

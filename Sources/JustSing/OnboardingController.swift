@@ -11,8 +11,8 @@ enum OnboardingController {
 
         Capture method on this Mac: \(captureBackend.displayName)
 
-        • Left-click the menu bar icon to toggle vocal reduction
-        • Right-click for intensity, makeup gain, and other settings
+        • Left-click the menu bar icon for settings — use the Apps menu to leave FaceTime alone
+        • Right-click to toggle vocal reduction
         • Press ⌘⌥M as a global shortcut
 
         Audio permissions are requested only when you first enable reduction.
