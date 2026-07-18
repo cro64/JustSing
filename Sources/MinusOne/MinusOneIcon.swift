@@ -1,8 +1,10 @@
 import AppKit
 
 enum MinusOneIcon {
-    /// Waveform glyph from the logo SVG (5-bar variant).
+    /// Official logo waveform (5-bar / active variant with center as a bar or dot).
     /// Off: bars with a tall center. On: center collapses to a dot.
+    /// App icon: Resources/MinusOne.icon · vector: Resources/MinusOneIcon.svg
+
     static func waveform(size: CGFloat, color: NSColor, isActive: Bool) -> NSImage {
         let image = NSImage(size: NSSize(width: size, height: size))
         image.lockFocus()
@@ -55,6 +57,7 @@ enum MinusOneIcon {
 
         context.restoreGState()
         image.unlockFocus()
+        // Caller sets isTemplate for idle (system light/dark menu bar tint).
         image.isTemplate = false
         return image
     }

@@ -12,6 +12,10 @@
     <string>6.0</string>
     <key>CFBundleName</key>
     <string>MinusOne</string>
+    <key>CFBundleIconFile</key>
+    <string>MinusOne</string>
+    <key>CFBundleIconName</key>
+    <string>MinusOne</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

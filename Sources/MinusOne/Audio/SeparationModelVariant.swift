@@ -52,6 +52,77 @@ enum SeparationModelVariant: String, CaseIterable, Codable, Identifiable {
         }
     }
 
+    /// Hugging Face repo that hosts the CoreML package (nil if not downloadable yet).
+    var huggingFaceRepoID: String? {
+        switch self {
+        case .balanced:
+            return "dexxdean/htdemucs-coreml"
+        case .fineTuned, .sixStem:
+            return nil
+        }
+    }
+
+    /// Folder name inside the HF repo to download (installed on disk as `packageFileName`).
+    var huggingFaceSourcePackageName: String? {
+        switch self {
+        case .balanced:
+            return "HTDemucs_CoreML_FP16.mlpackage"
+        case .fineTuned, .sixStem:
+            return nil
+        }
+    }
+
+    var approximateDownloadSizeText: String {
+        switch self {
+        case .balanced:
+            return "~200 MB"
+        case .fineTuned, .sixStem:
+            return "Coming soon"
+        }
+    }
+
+    /// Short origin blurb for the onboarding info popover.
+    var sourceAttributionText: String {
+        switch self {
+        case .balanced:
+            return """
+            Based on Meta’s Demucs v4 (htdemucs) — open-source music source separation.
+
+            The CoreML package MinusOne downloads is published on Hugging Face by dexxdean (dexxdean/htdemucs-coreml), converted for Apple Silicon.
+            """
+        case .fineTuned:
+            return """
+            Based on Meta’s Demucs v4 fine-tuned bag (htdemucs_ft) — same 4 stems as Balanced, trained for higher quality at slower speed.
+
+            A CoreML build is not available to download in MinusOne yet.
+            """
+        case .sixStem:
+            return """
+            Based on Meta’s Demucs 6-stem model (htdemucs_6s) — adds guitar and piano stems.
+
+            A CoreML build is not available to download in MinusOne yet.
+            """
+        }
+    }
+
+    var sourcePageURL: URL? {
+        switch self {
+        case .balanced:
+            return URL(string: "https://huggingface.co/dexxdean/htdemucs-coreml")
+        case .fineTuned, .sixStem:
+            return URL(string: "https://github.com/facebookresearch/demucs")
+        }
+    }
+
+    var onboardingChoiceTitle: String {
+        switch self {
+        case .balanced:
+            return "\(displayName) (\(approximateDownloadSizeText))"
+        case .fineTuned, .sixStem:
+            return "\(displayName) — \(approximateDownloadSizeText)"
+        }
+    }
+
     /// Primary on-disk package name (Demucs checkpoint id).
     var packageFileName: String {
         "\(rawValue).mlpackage"

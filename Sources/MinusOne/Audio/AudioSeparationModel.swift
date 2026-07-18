@@ -64,7 +64,7 @@ enum SeparationModelFactory {
     static let modelsDirectoryName = "MinusOne/Models"
 
     static let modelInstallHint = """
-        Run Scripts/download-model.sh to install Demucs models (Balanced is available now).
+        Download a Neural model from the welcome screen, or run Scripts/download-model.sh.
         """
 
     static func isAvailable(_ variant: SeparationModelVariant) -> Bool {

@@ -287,7 +287,7 @@ final class SettingsPopoverViewController: NSViewController {
             item.toolTip = installed
                 ? variant.detailText
                 : (variant.hasCoreMLRelease
-                    ? "Not installed — run Scripts/download-model.sh \(variant.rawValue)"
+                    ? "Not installed — download from the welcome screen or Scripts/download-model.sh \(variant.rawValue)"
                     : "CoreML build coming soon")
         }
 

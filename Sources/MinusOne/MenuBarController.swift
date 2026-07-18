@@ -12,6 +12,7 @@ final class MenuBarController: NSObject {
     private var isFilterActive = false
     private var dismissMonitor: Any?
     private var localDismissMonitor: Any?
+    private var appearanceObserver: NSObjectProtocol?
 
     init(preferences: Preferences, audioEngine: AudioEngine) {
         self.preferences = preferences
@@ -27,6 +28,20 @@ final class MenuBarController: NSObject {
         settingsPanel.contentView = settingsViewController.view
         configureStatusItem()
         configureSettingsCallbacks()
+        appearanceObserver = DistributedNotificationCenter.default.addObserver(
+            forName: NSNotification.Name("AppleInterfaceThemeChangedNotification"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.updateIcon()
+        }
+    }
+
+    deinit {
+        if let appearanceObserver {
+            DistributedNotificationCenter.default.removeObserver(appearanceObserver)
+        }
+        stopDismissMonitors()
     }
 
     func updateStatus(_ status: AudioEngineStatus) {
@@ -101,22 +116,32 @@ final class MenuBarController: NSObject {
 
         let size: CGFloat = 18
         let color: NSColor
+        let usesTemplate: Bool
 
         if case .error = currentStatus {
             color = .systemRed
+            usesTemplate = false
         } else if case .permissionRequired = currentStatus {
             color = .systemOrange
+            usesTemplate = false
         } else if case .warmingUp = currentStatus {
             color = .systemCyan
+            usesTemplate = false
         } else if case .monoInput = currentStatus {
             color = .systemYellow
+            usesTemplate = false
         } else if isFilterActive {
             color = .controlAccentColor
+            usesTemplate = false
         } else {
-            color = .white
+            // Black mask + template → AppKit tints for light/dark menu bar.
+            color = .black
+            usesTemplate = true
         }
 
-        button.image = MinusOneIcon.waveform(size: size, color: color, isActive: isFilterActive)
+        let image = MinusOneIcon.waveform(size: size, color: color, isActive: isFilterActive)
+        image.isTemplate = usesTemplate
+        button.image = image
         button.contentTintColor = nil
     }
 

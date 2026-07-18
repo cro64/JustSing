@@ -63,6 +63,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menuBarController?.updateStatus(.idle)
         AppLogger.shared.info("MinusOne launched")
 
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            OnboardingController.showIfNeeded(
+                preferences: self.preferences,
+                captureBackend: CaptureBackend.preferred
+            )
+        }
+
         restoreSessionIfNeeded()
     }
 

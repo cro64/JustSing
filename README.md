@@ -23,7 +23,7 @@ Scripts/build-app.sh release          # → build/MinusOne.app
 Scripts/download-model.sh htdemucs    # Neural only, ~200 MB one-time
 ```
 
-Open `build/MinusOne.app`. Left-click the menu bar waveform icon for settings, then choose **Neural → Balanced** after installing the model. Right-click the icon to toggle reduction.
+Open `build/MinusOne.app`. On first launch, pick a Neural model to download (or skip and use Center Cut). Left-click the menu bar waveform icon for settings, then choose **Neural → Balanced** after the model is installed. Right-click the icon to toggle reduction.
 
 ## Requirements
 
@@ -74,11 +74,11 @@ Intensity and gain apply to Center Cut and Neural only.
 
 ### Icon
 
-Waveform glyph in the menu bar:
+Official logo is the **active** waveform (center as a dot) — see `Resources/MinusOne.icon`. Menu bar states:
 
 | Appearance | Meaning |
 |------------|---------|
-| Full center bar (white) | Idle / reduction off |
+| Full center bar (menu-bar tint) | Idle / reduction off |
 | Center dot (accent) | Reduction on |
 | Cyan | Neural warming up |
 | Yellow | Mono input — Center Cut unavailable |
@@ -112,7 +112,9 @@ Downloads [HTDemucs FP16 CoreML](https://huggingface.co/dexxdean/htdemucs-coreml
 ## Development
 
 ```sh
-Scripts/build-app.sh          # debug build
+Scripts/package-icon.sh       # compile Resources/MinusOne.icon → Assets.car (Xcode 26.6+)
+Scripts/build-app.sh          # debug build (embeds icon)
+Scripts/build-app.sh release
 swift build --disable-sandbox # SPM only
 ```
 
@@ -120,7 +122,10 @@ swift build --disable-sandbox # SPM only
 Sources/MinusOne/           App and UI
 Sources/MinusOne/Audio/   Engine, DSP, neural pipeline
 Sources/CAtomics/         Realtime primitives
+Resources/MinusOne.icon   App icon (Icon Composer)
+Resources/MinusOneIcon.svg  Logo vector (active waveform)
 Scripts/build-app.sh
+Scripts/package-icon.sh
 Scripts/download-model.sh
 ```
 

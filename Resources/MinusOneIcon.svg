@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 100" fill="none" role="img" aria-label="MinusOne">
+  <!-- Official MinusOne logo — active waveform (center bar → dot). -->
+  <g transform="translate(0 100) scale(1 -1)">
+    <g stroke="currentColor" stroke-width="12" stroke-linecap="round">
+      <line x1="18" y1="25" x2="18" y2="75"/>
+      <line x1="36" y1="35" x2="36" y2="65"/>
+      <line x1="72" y1="35" x2="72" y2="65"/>
+      <line x1="90" y1="25" x2="90" y2="75"/>
+    </g>
+    <circle cx="54" cy="50" r="6" fill="currentColor"/>
+  </g>
+</svg>
